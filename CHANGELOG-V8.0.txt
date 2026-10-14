@@ -1,0 +1,13 @@
+GMP Körväg Studio V8.0 BUS DRIVER
+
+- Ny omläggning visas blå som aktiv körväg; ersatt ordinarie sträcka visas röd.
+- Handritad omläggning filtreras hårdare så små mus-hack inte blir onödiga sidogator.
+- Omläggning mellan två punkter kan automatiskt förlängas till nästa betjänade hållplats efter vald återanslutning.
+- Bussen flyttas från vägmitt mot höger körfält på vanliga svenska vägar; explicit bussfil/bussgata prioriteras.
+- OSM-säkerhetspunkter hämtas via Cloudflare Worker: övergångsställe, trafiksignal, stopp, väjningsplikt och farthinder.
+- Yrkesförarlogiken sänker farten före dessa punkter samt befintliga kurvor/rondeller/hållplatser.
+- Automatisk blinkers är kvar visuellt på bussen utan krav på text-HUD.
+- Körhistorik/replay med -10 s, -5 s, dragbar tidslinje, +5 s och +10 s.
+- Replay återställer position, hastighet, broms, blinkers och kameratillstånd.
+- Bro/viadukt/tunnel använder förbättrad 3D höjdhantering mot fotorealistisk mesh.
+- Befintlig Cloudflare Pages-struktur, GTFS, Worker och bussmodeller är bevarade.

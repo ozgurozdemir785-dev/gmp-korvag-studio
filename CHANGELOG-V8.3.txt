@@ -1,0 +1,10 @@
+GMP Körväg Studio V8.3 TRAFFIC READY
+
+- Ny kompakt trafikrad direkt på kartan.
+- Färgknappar: orange vägarbete, röd olycka/avstängt, gul kö/framkomlighet, blå kollektivtrafik/info.
+- Varje färg kan slås av/på med ett klick.
+- Uppdateringsknapp för trafikhändelser längs aktiv rutt.
+- Trafikpluppar filtreras mot aktiv körväg (ca 450 m korridor).
+- Cloudflare-endpoint /api/traffic-events är förberedd.
+- Trafikverket-nyckel ska senare läggas som Cloudflare secret TRAFIKVERKET_API_KEY; nyckeln ska inte ligga i webbläsarkoden.
+- Inga demo-/påhittade livehändelser visas innan riktig datakälla är kopplad.

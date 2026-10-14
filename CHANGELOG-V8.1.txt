@@ -1,0 +1,10 @@
+V8.1 MAP FIRST
+- Map-first layout: sidopanelerna är nu off-canvas även på stora skärmar.
+- Planeringspanel öppnas vid behov med ☰.
+- Kontrollpanel öppnas vid behov med ⚙️.
+- Trafikstudio, karttips, stor status-HUD och teckenförklaring döljs som standard.
+- Gamla driverBlade/manöverbladet döljs permanent i kart-/3D-vyn.
+- Nedersta körkontrollerna är mindre och visar bara bussval, kör/pause/stopp och uppspelningshastighet.
+- Replay-raden är smalare och ligger strax ovanför körkontrollerna.
+- 2D/3D/4D-väljare och kartknappar är komprimerade.
+- Ingen ändring av Cloudflare Worker, GTFS eller GLB-bussmodeller.

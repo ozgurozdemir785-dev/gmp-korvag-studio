@@ -1,0 +1,12 @@
+GMP Körväg Studio V8.5 CAMERA DIRECTOR
+
+- Ny förbättrad Bakom-vy: längre avstånd, högre än busstaket och mjukare följning.
+- Ny Sidifrån-vy med upphöjd vinkel och automatisk utsida i kurvor.
+- Ny Framifrån-vy som möter bussen på säkert avstånd.
+- Förarvy omkalibrerad till ungefär 2,35 m verklig kameraögonhöjd genom låg målpunkt + nästan horisontell blick.
+- Förarvy har diskret vindrute-/förarplatskänsla med A-stolpar, speglar och instrumentkant.
+- Ovanifrån finjusterad för bättre överblick.
+- Drönare och Fri kamera från V8.4 behållna.
+- Kamerabyte påverkar inte bussens uppspelning eller replay.
+- Under inspelning flyttas kamerakontrollen utanför inspelningsytan: kameran kan bytas live utan att inspelningen stoppas eller startas om.
+- V8.4 Live Traffic och Trafikverket-kopplingen är oförändrad och kvar.

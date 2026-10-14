@@ -1,0 +1,10 @@
+GMP Körväg Studio V8.4 LIVE TRAFFIC
+
+- Kopplar Cloudflare-hemligheten TRAFIKVERKET_API_KEY till Trafikverkets öppna API.
+- Hämtar aktiva Situation-händelser i Västra Götaland: vägarbeten, olyckor, avstängningar, hinder, kö/framkomlighet och relevant information.
+- Hämtar TrafficFlow och visar gula punkter endast vid tydligt låg uppmätt hastighet för att undvika kartbrus.
+- Filtrerar både i Worker och i kartan så pluppar visas nära den aktiva busslinjen/rutten.
+- Trafikknapparna orange/röd/gul/blå är klickbara filter.
+- Uppdaterar automatiskt när aktiv rutt ändras och därefter varannan minut.
+- Manuell uppdatering via ↻ finns kvar.
+- API-nyckeln lämnar aldrig Cloudflare Worker och exponeras inte i webbläsaren.

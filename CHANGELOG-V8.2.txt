@@ -1,0 +1,10 @@
+GMP Körväg Studio V8.2 SMART DRONE
+
+- Behåller V8.1 MAP FIRST-layouten oförändrad.
+- Drönaren väljer automatiskt sned sidovinkel i kurvor och trånga miljöer.
+- Kameran går mot utsidan av kommande kurva i stället för att fortsätta rakt in i skog/byggnadsmassa.
+- Mjuk höjning och större avstånd när miljön blir trång, kuperad eller rondellnära.
+- Extra kamerahöjd vid hög risk för skymd sikt.
+- Bussens målpunkt ligger längre fram så bussen hålls tydligare i bild.
+- Drönarens heading-bias och sidoval interpoleras mjukt för att undvika ryck.
+- Rondell ger automatiskt högre och mer sned drönarvinkel.

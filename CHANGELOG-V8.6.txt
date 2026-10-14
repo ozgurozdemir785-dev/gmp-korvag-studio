@@ -1,0 +1,10 @@
+GMP Körväg Studio V8.6 MAP-ONLY RECORDING
+
+- Inspelning styrs nu från Kontrollpanelen.
+- Videon får endast starta om kart-/3D-ytan kan isoleras via browser Region Capture.
+- Hela skärmen spelas aldrig in som fallback.
+- Kontrollpanel och kameraknappar kan användas under pågående REC men hamnar utanför inspelningsytan.
+- Kamerabyte under REC stoppar eller startar inte om inspelningen.
+- Förarvy, Bakom, Sidifrån, Framifrån, Ovanifrån, Drönare och Fri kamera kan bytas live.
+- Trafikverket Live Traffic, Västtrafik/GTFS, Google/3D och övrig API-kod från tidigare versioner är bevarad.
+- Hemliga API-nycklar följer inte med i ZIP av säkerhetsskäl; de läses fortsatt från Cloudflare Secrets, t.ex. TRAFIKVERKET_API_KEY.
