@@ -23,3 +23,6 @@
 
 /service-window-manager.js
   Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/draw-detour-enhancer.js
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
