@@ -2,3 +2,12 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=(), display-capture=(self)
+
+/active-detour.js
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/smart-auto-detour.js
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/detour-search.js
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
