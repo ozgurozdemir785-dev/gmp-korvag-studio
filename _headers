@@ -14,3 +14,6 @@
 
 /linne-preset-bootstrap.js
   Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/linne-preset-button.js
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
