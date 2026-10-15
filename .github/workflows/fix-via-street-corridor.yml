@@ -23,90 +23,26 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          p=Path('linne-preset-button.js')
-          s=p.read_text(encoding='utf-8')
-          marker='SMART_VIA_STREET_CORRIDOR_V1'
+          p = Path('linne-preset-button.js')
+          s = p.read_text(encoding='utf-8')
+          marker = 'SMART_VIA_STREET_CORRIDOR_V2'
           if marker not in s:
-              s=s.replace('SMART_PLACE_TERMINAL_SEARCH_V1', 'SMART_PLACE_TERMINAL_SEARCH_V1\n   SMART_VIA_STREET_CORRIDOR_V1')
-
-              old="""function classifyMapResult(x,q){
-  const meta=((x.class||'')+' '+(x.type||'')+' '+(x.addresstype||'')+' '+(x.display_name||'')).toLowerCase();
-  const terminal=/bus_station|bus_terminal|coach_station|transportation/.test(meta)||isTerminalName(x.display_name||'');
-  const stop=!terminal&&/bus_stop|platform|public_transport|stop_position|station/.test(meta);
-  return {kind:terminal?'terminal':stop?'stop':'place',name:(x.display_name||q).split(',')[0],detail:(terminal?'Bussterminal / knutpunkt · ':'')+(x.display_name||q),coord:[+x.lon,+x.lat],official:false,terminal,score:terminal?88:stop?55:30};
-}
-"""
-              new="""function geoStreetLine(g){
-  if(!g)return[];
-  if(g.type==='LineString')return Array.isArray(g.coordinates)?g.coordinates:[];
-  if(g.type==='MultiLineString'&&Array.isArray(g.coordinates))return g.coordinates.slice().sort((a,b)=>b.length-a.length)[0]||[];
-  return[];
-}
-function streetCorridor(g,center){
-  const A=app(),line=geoStreetLine(g).filter(c=>Array.isArray(c)&&Number.isFinite(+c[0])&&Number.isFinite(+c[1])).map(c=>[+c[0],+c[1]]);
-  if(!A||line.length<3)return[];
-  let ci=0,bd=Infinity;for(let i=0;i<line.length;i++){const d=A.hav(line[i],center);if(d<bd){bd=d;ci=i}}
-  let lo=ci,hi=ci,back=0,fwd=0;
-  while(lo>0&&back<420){back+=A.hav(line[lo],line[lo-1]);lo--}
-  while(hi<line.length-1&&fwd<420){fwd+=A.hav(line[hi],line[hi+1]);hi++}
-  const seg=line.slice(lo,hi+1);if(seg.length<2)return[];
-  const max=7;if(seg.length<=max)return seg;
-  const out=[seg[0]];for(let i=1;i<max-1;i++)out.push(seg[Math.round(i*(seg.length-1)/(max-1))]);out.push(seg.at(-1));return out;
-}
-function classifyMapResult(x,q){
-  const meta=((x.class||'')+' '+(x.type||'')+' '+(x.addresstype||'')+' '+(x.display_name||'')).toLowerCase();
-  const terminal=/bus_station|bus_terminal|coach_station|transportation/.test(meta)||isTerminalName(x.display_name||'');
-  const stop=!terminal&&/bus_stop|platform|public_transport|stop_position|station/.test(meta);
-  const street=!terminal&&!stop&&(/highway|road|street/.test(meta)||x.class==='highway');
-  const coord=[+x.lon,+x.lat],corridor=street?streetCorridor(x.geojson,coord):[];
-  return {kind:terminal?'terminal':stop?'stop':street?'street':'place',name:(x.display_name||q).split(',')[0],detail:(terminal?'Bussterminal / knutpunkt · ':street&&corridor.length?'GATUKORRIDOR · ':'')+(x.display_name||q),coord,official:false,terminal,street,corridor,score:terminal?88:stop?55:street?52:30};
-}
-"""
+              s = s.replace('SMART_PLACE_TERMINAL_SEARCH_V1', 'SMART_PLACE_TERMINAL_SEARCH_V1\n   SMART_VIA_STREET_CORRIDOR_V2')
+              old = "function classifyMapResult(x,q){\n  const meta=((x.class||'')+' '+(x.type||'')+' '+(x.addresstype||'')+' '+(x.display_name||'')).toLowerCase();\n  const terminal=/bus_station|bus_terminal|coach_station|transportation/.test(meta)||isTerminalName(x.display_name||'');\n  const stop=!terminal&&/bus_stop|platform|public_transport|stop_position|station/.test(meta);\n  return {kind:terminal?'terminal':stop?'stop':'place',name:(x.display_name||q).split(',')[0],detail:(terminal?'Bussterminal / knutpunkt · ':'')+(x.display_name||q),coord:[+x.lon,+x.lat],official:false,terminal,score:terminal?88:stop?55:30};\n}\n"
+              new = "function geoStreetLine(g){\n  if(!g)return[];\n  if(g.type==='LineString')return Array.isArray(g.coordinates)?g.coordinates:[];\n  if(g.type==='MultiLineString'&&Array.isArray(g.coordinates))return g.coordinates.slice().sort((a,b)=>b.length-a.length)[0]||[];\n  return[];\n}\nfunction streetCorridor(g,center){\n  const A=app(),line=geoStreetLine(g).filter(c=>Array.isArray(c)&&Number.isFinite(+c[0])&&Number.isFinite(+c[1])).map(c=>[+c[0],+c[1]]);\n  if(!A||line.length<2)return[];\n  let ci=0,bd=Infinity;for(let i=0;i<line.length;i++){const d=A.hav(line[i],center);if(d<bd){bd=d;ci=i}}\n  let lo=ci,hi=ci,back=0,fwd=0;\n  while(lo>0&&back<500){back+=A.hav(line[lo],line[lo-1]);lo--}\n  while(hi<line.length-1&&fwd<500){fwd+=A.hav(line[hi],line[hi+1]);hi++}\n  const seg=line.slice(lo,hi+1);if(seg.length<2)return[];\n  const max=9;if(seg.length<=max)return seg;\n  const out=[seg[0]];for(let i=1;i<max-1;i++)out.push(seg[Math.round(i*(seg.length-1)/(max-1))]);out.push(seg.at(-1));return out;\n}\nfunction classifyMapResult(x,q){\n  const meta=((x.class||'')+' '+(x.type||'')+' '+(x.addresstype||'')+' '+(x.display_name||'')).toLowerCase();\n  const terminal=/bus_station|bus_terminal|coach_station|transportation/.test(meta)||isTerminalName(x.display_name||'');\n  const stop=!terminal&&/bus_stop|platform|public_transport|stop_position|station/.test(meta);\n  const street=!terminal&&!stop&&(x.class==='highway'||/ highway | road | street /.test(' '+meta+' '));\n  const coord=[+x.lon,+x.lat],corridor=street?streetCorridor(x.geojson,coord):[];\n  return {kind:terminal?'terminal':stop?'stop':street?'street':'place',name:(x.display_name||q).split(',')[0],detail:(terminal?'Bussterminal / knutpunkt · ':street&&corridor.length?'GATA – följer gatans sträckning · ':'')+(x.display_name||q),coord,official:false,terminal,street,corridor,score:terminal?88:stop?55:street?72:30};\n}\n"
               if old not in s:
                   raise SystemExit('classifyMapResult block not found')
-              s=s.replace(old,new)
-
-              oldurl="const u='/geo/search?format=json&addressdetails=1&limit=8&countrycodes=se&q='+encodeURIComponent(qq);"
-              newurl="const u='/geo/search?format=json&addressdetails=1&polygon_geojson=1&limit=8&countrycodes=se&q='+encodeURIComponent(qq);"
-              if oldurl not in s:
-                  raise SystemExit('geo search URL block not found')
-              s=s.replace(oldurl,newurl)
-
-              s=s.replace("x.kind==='terminal'?'🚌':x.kind==='stop'?'🚏':'📍'", "x.kind==='terminal'?'🚌':x.kind==='stop'?'🚏':x.kind==='street'?'🛣️':'📍'")
-
-              insert="""function smartViaRoutePoints(start,items,end,A){
-  const out=[[+start[0],+start[1]]];let cur=out[0];
-  for(let vi=0;vi<items.length;vi++){
-    const x=items[vi],next=items[vi+1]?.coord||end;
-    let corr=(x?.corridor||[]).filter(c=>Array.isArray(c)&&c.length>=2).map(c=>[+c[0],+c[1]]);
-    if(corr.length>1){
-      const normal=A.hav(cur,corr[0])+A.hav(corr.at(-1),next),rev=A.hav(cur,corr.at(-1))+A.hav(corr[0],next);
-      if(rev<normal)corr=corr.slice().reverse();
-      for(const c of corr)if(A.hav(out.at(-1),c)>8)out.push(c);
-    }else if(x?.coord&&A.hav(out.at(-1),x.coord)>8)out.push([+x.coord[0],+x.coord[1]]);
-    cur=out.at(-1);
-  }
-  if(A.hav(out.at(-1),end)>4)out.push([+end[0],+end[1]]);else out[out.length-1]=[+end[0],+end[1]];
-  return out;
-}
-"""
-              anchor="function nearestIdx(route,p,A){"
+              s = s.replace(old, new)
+              s = s.replace("const u='/geo/search?format=json&addressdetails=1&limit=8&countrycodes=se&q='+encodeURIComponent(qq);", "const u='/geo/search?format=json&addressdetails=1&polygon_geojson=1&limit=8&countrycodes=se&q='+encodeURIComponent(qq);")
+              s = s.replace("x.kind==='terminal'?'🚌':x.kind==='stop'?'🚏':'📍'", "x.kind==='terminal'?'🚌':x.kind==='stop'?'🚏':x.kind==='street'?'🛣️':'📍'")
+              insert = "function smartViaRoutePoints(start,items,end,A){\n  const out=[[+start[0],+start[1]]];let cur=out[0];\n  for(let vi=0;vi<items.length;vi++){\n    const x=items[vi],next=items[vi+1]?.coord||end;\n    let corr=(x?.corridor||[]).filter(c=>Array.isArray(c)&&c.length>=2).map(c=>[+c[0],+c[1]]);\n    if(corr.length>1){\n      const normal=A.hav(cur,corr[0])+A.hav(corr.at(-1),next),rev=A.hav(cur,corr.at(-1))+A.hav(corr[0],next);\n      if(rev<normal)corr=corr.slice().reverse();\n      for(const c of corr)if(A.hav(out.at(-1),c)>12)out.push(c);\n    }else if(x?.coord&&A.hav(out.at(-1),x.coord)>12)out.push([+x.coord[0],+x.coord[1]]);\n    cur=out.at(-1);\n  }\n  if(A.hav(out.at(-1),end)>5)out.push([+end[0],+end[1]]);else out[out.length-1]=[+end[0],+end[1]];\n  return out;\n}\n"
+              anchor = 'function nearestIdx(route,p,A){'
               if anchor not in s:
                   raise SystemExit('nearestIdx anchor not found')
-              s=s.replace(anchor,insert+anchor)
-
-              oldpoints="const points=[start,...viaPoints.map(x=>x.coord),end];"
-              newpoints="const points=smartViaRoutePoints(start,viaPoints,end,A);"
-              if oldpoints not in s:
-                  raise SystemExit('points line not found')
-              s=s.replace(oldpoints,newpoints)
-
-              oldchip="${esc(x.name)} <button type=\"button\" data-x=\"${i}\">×</button>"
-              newchip="${esc(x.name)}${x.corridor?.length?' · följ gata':''} <button type=\"button\" data-x=\"${i}\">×</button>"
-              if oldchip in s:
-                  s=s.replace(oldchip,newchip)
-
-              p.write_text(s,encoding='utf-8')
+              s = s.replace(anchor, insert + anchor)
+              s = s.replace('const points=[start,...viaPoints.map(x=>x.coord),end];', 'const points=smartViaRoutePoints(start,viaPoints,end,A);')
+              s = s.replace("${esc(x.name)} <button type=\"button\" data-x=\"${i}\">×</button>", "${esc(x.name)}${x.corridor?.length?' · följ gata':''} <button type=\"button\" data-x=\"${i}\">×</button>")
+              p.write_text(s, encoding='utf-8')
           PY
 
       - name: Commit street corridor fix
@@ -118,7 +54,7 @@ function classifyMapResult(x,q){
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add linne-preset-button.js
-            git commit -m 'Make smart via follow selected streets as corridors'
+            git commit -m 'Lock smart detours to selected street corridors'
             git push
           fi
 
