@@ -1,13 +1,13 @@
-# trigger-v2
 name: Patch Active Detour Route
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - '.github/workflows/patch-active-detour.yml'
-  workflow_dispatch:
+      - '.github/scripts/inject-active-detour.py'
 
 permissions:
   contents: write
@@ -19,131 +19,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Make detours active for map and bus simulation
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
+      - name: Inject active detour runtime
+        run: python .github/scripts/inject-active-detour.py
 
-          p = Path('detour-search.js')
-          s = p.read_text(encoding='utf-8')
-          marker = '/* ACTIVE_DETOUR_RUNTIME_V11 */'
-          if marker in s:
-              print('Active detour runtime already installed')
-              raise SystemExit(0)
-
-          anchor = "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(install,0));else setTimeout(install,0);"
-          if anchor not in s:
-              raise SystemExit('Could not find detour-search ready anchor')
-
-          patch = r'''
-
-/* ACTIVE_DETOUR_RUNTIME_V11 */
-const _gmpOriginalBuildSimRoute = buildSimRoute;
-const _gmpOriginalBuildDriveRoute = buildDriveRoute;
-const _gmpOriginalSnapDetour = typeof snapDetour==='function' ? snapDetour : null;
-
-function _gmpRouteSig(route){
-  if(!route?.length)return'';
-  const idx=[0,.18,.36,.54,.72,.9,1].map(t=>Math.min(route.length-1,Math.round((route.length-1)*t)));
-  return route.length+'|'+idx.map(i=>route[i].map(x=>(+x).toFixed(5)).join(',')).join('|');
-}
-function _gmpActiveDetourValid(d){
-  return !!(d?._activeDetourRoute?.length>1 && d?.ordinary?.length>1 && d?.detour?.length>1 &&
-    d._activeDetourBaseSig===_gmpRouteSig(d.ordinary) && d._activeDetourSig===_gmpRouteSig(d.detour));
-}
-function _gmpJoinRoute(parts){
-  const out=[];
-  for(const part of parts){
-    for(const c of (part||[])){
-      if(!c||!Number.isFinite(+c[0])||!Number.isFinite(+c[1]))continue;
-      if(!out.length||hav(out.at(-1),c)>.8)out.push([+c[0],+c[1]]);
-      else out[out.length-1]=[+c[0],+c[1]];
-    }
-  }
-  return out;
-}
-function _gmpComposeCurrentDetour(d){
-  if(!d?.ordinary?.length||d.ordinary.length<2||!d?.detour?.length||d.detour.length<2)return null;
-  const startN=nearestPointOnRoute(d.ordinary,d.detour[0]);
-  const endN=nearestPointOnRoute(d.ordinary,d.detour.at(-1));
-  if(!startN||!endN||endN.distance<=startN.distance+8)return null;
-  const total=routeLength(d.ordinary);
-  const prefix=routeSliceByDistance(d.ordinary,0,startN.distance,2.5);
-  const suffix=routeSliceByDistance(d.ordinary,endN.distance,total,2.5);
-  const start=pointAtDistance(d.ordinary,startN.distance)||startN.coord;
-  const end=pointAtDistance(d.ordinary,endN.distance)||endN.coord;
-  const mid=d.detour.slice();
-  if(mid.length){mid[0]=start;mid[mid.length-1]=end}
-  return _gmpJoinRoute([prefix,mid,suffix]);
-}
-function _gmpActivateCurrentDetour(label='Ny omläggning'){
-  const d=dir();
-  const active=_gmpComposeCurrentDetour(d);
-  if(!active?.length||active.length<2)return false;
-  d._activeDetourRoute=active;
-  d._activeDetourBaseSig=_gmpRouteSig(d.ordinary);
-  d._activeDetourSig=_gmpRouteSig(d.detour);
-  d.routeSource=(d.routeSource||label)+' • AKTIV KÖRVÄG';
-  d.freeActive=false;
-  if(state.visibility){state.visibility.detour=true;state.visibility.affected=true;state.visibility.driveLine=true;state.visibility.baseRoute=true}
-  state.playing=false;state.paused=false;state.busProgress=0;state.simSpeed=0;state.driveRoute=buildDriveRoute(d);
-  try{resetReplay()}catch{}
-  try{enrichDirRoadMeta(d,active).catch(()=>{})}catch{}
-  try{fitCoords(active,70)}catch{}
-  try{renderAll()}catch{}
-  try{renderDetourWorkflowState()}catch{}
-  try{updateSummary()}catch{}
-  const st=document.getElementById('autoDetourStatus');
-  if(st){st.className='autoDetourStatus';st.innerHTML='✓ <b>AKTIV KÖRVÄG</b> – omläggningen är nu systemets körväg och bussen följer den vid uppspelning.'}
-  try{toast(label+' är nu aktiv. Bussen kör på den nya körvägen, inte på den ersatta ordinarie sträckan.',5200)}catch{}
-  return true;
-}
-
-buildSimRoute = function(d){
-  if(_gmpActiveDetourValid(d))return d._activeDetourRoute;
-  return _gmpOriginalBuildSimRoute(d);
-};
-buildDriveRoute = function(d){
-  if(_gmpActiveDetourValid(d)){
-    const prof=vehicleProfile(),step=Math.max(2.0,Math.min(2.8,prof.length/7.2));
-    return resampleRoute(d._activeDetourRoute,step);
-  }
-  return _gmpOriginalBuildDriveRoute(d);
-};
-
-if(_gmpOriginalSnapDetour){
-  snapDetour = async function(raw){
-    await _gmpOriginalSnapDetour(raw);
-    const d=dir();
-    if(d?.detour?.length>1)_gmpActivateCurrentDetour('Ritad omläggning');
-  };
-}
-
-document.addEventListener('click',e=>{
-  const apply=e.target?.closest?.('#autoDetourApply');
-  if(apply)setTimeout(()=>_gmpActivateCurrentDetour('Vald auto-omläggning'),0);
-  const clear=e.target?.closest?.('#clearDetourBtn,#lineBtn,#setOrdinaryBtn');
-  if(clear){
-    const d=dir();
-    if(d){d._activeDetourRoute=[];d._activeDetourBaseSig='';d._activeDetourSig=''}
-  }
-});
-'''
-
-          s = s.replace(anchor, patch + '\n' + anchor, 1)
-          p.write_text(s, encoding='utf-8')
-          PY
-
-      - name: Commit patch
-        shell: bash
+      - name: Commit worker update
         run: |
           git config user.name "gmp-korvag-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add detour-search.js
+          git add _worker.js
           if git diff --cached --quiet; then
-            echo "No patch needed"
+            echo "No worker update needed"
           else
-            git commit -m "Make rerouted path active for simulation"
+            git commit -m "Load active detour runtime"
             git push origin main
           fi
