@@ -1,7 +1,7 @@
 (()=>{
 'use strict';
 
-/* ACTIVE_DETOUR_RUNTIME_V11 */
+/* ACTIVE_DETOUR_RUNTIME_V12 */
 const oldBuildSimRoute=buildSimRoute;
 const oldBuildDriveRoute=buildDriveRoute;
 const oldRenderOverlay=renderOverlay;
@@ -57,7 +57,7 @@ function composeActive(d){
     }
   }
 
-  // Reservlogik: hitta var den nya vägen lämnar och återansluter till ordinarie linje.
+  // Reservlogik: hitta var omläggningen lämnar och återansluter till ordinarie linje.
   const a=nearestPointOnRoute(d.ordinary,d.detour[0]),b=nearestPointOnRoute(d.ordinary,d.detour.at(-1));
   if(!a||!b||b.distance<=a.distance+5)return d.detour.map(c=>[+c[0],+c[1]]);
   const prefix=routeSliceByDistance(d.ordinary,0,a.distance,2.5),suffix=routeSliceByDistance(d.ordinary,b.distance,total,2.5),det=d.detour.map(c=>[+c[0],+c[1]]);
@@ -70,11 +70,15 @@ function activeValid(d){
 function clearActive(d){
   if(!d)return;
   d._activeDetourRoute=[];d._activeDetourSig='';d._activeDetourBaseSig='';
-  if(state.driveRoute===d._activeDetourRoute)state.driveRoute=null;
+  state.driveRoute=null;
+  syncActivateButton();
 }
 function activate(label='Ny omläggning'){
   const d=dir(),active=composeActive(d);
-  if(!active?.length||active.length<2)return false;
+  if(!active?.length||active.length<2){
+    try{toast('Det finns ingen färdig omläggning att aktivera ännu.',3500)}catch{}
+    return false;
+  }
   d._activeDetourRoute=active;
   d._activeDetourSig=routeSig(d.detour);
   d._activeDetourBaseSig=routeSig(d.ordinary);
@@ -87,9 +91,11 @@ function activate(label='Ny omläggning'){
   try{enrichDirRoadMeta(d,active).catch(()=>{})}catch{}
   try{fitCoords(active,70)}catch{}
   try{renderAll()}catch{}
+  try{renderDetourWorkflowState()}catch{}
+  syncActivateButton();
   const st=document.getElementById('autoDetourStatus');
-  if(st){st.className='autoDetourStatus';st.innerHTML='✓ <b>AKTIV KÖRVÄG</b> – denna omläggning är nu bussens riktiga körväg.'}
-  try{toast(label+' är aktiv. Bussen följer nu den nya körvägen.',4500)}catch{}
+  if(st){st.className='autoDetourStatus';st.innerHTML='✓ <b>AKTIV KÖRVÄG</b> – orange omläggning är nu bussens riktiga körväg.'}
+  try{toast(label+' är aktiv. Bussen kör nu på den orange omläggningen.',4500)}catch{}
   return true;
 }
 
@@ -116,8 +122,30 @@ renderOverlay=function(){
 renderDetourWorkflowState=function(){
   oldRenderDetourWorkflowState();
   const d=dir(),el=$('detourWorkflowState');
-  if(el&&activeValid(d))el.innerHTML='<b>✓ AKTIV KÖRVÄG</b><span>Ordinarie sträcka är ersatt av omläggningen. Kartan, 2D/3D-körningen och bussen använder nu den nya rutten.</span>';
+  if(el&&activeValid(d))el.innerHTML='<b>✓ AKTIV KÖRVÄG</b><span>Orange omläggning ersätter ordinarie sträcka. Bussen använder den nya rutten i 2D och 3D.</span>';
+  syncActivateButton();
 };
+
+function installActivateButton(){
+  if(document.getElementById('activateDetourBtn'))return;
+  const anchor=document.getElementById('detourWorkflowState')||document.getElementById('autoDetourBox');
+  if(!anchor?.parentNode)return;
+  const wrap=document.createElement('div');
+  wrap.id='activateDetourWrap';
+  wrap.style.cssText='display:grid;grid-template-columns:1fr;gap:5px;margin:8px 0;';
+  wrap.innerHTML='<button id="activateDetourBtn" class="btn green" style="font-weight:900;min-height:38px">🚌 KÖR PÅ ORANGE OMLÄGGNING</button><div id="activateDetourHint" style="font-size:9px;color:#667085;text-align:center">Välj/rita omläggningen först. Tryck sedan här för att göra den till bussens riktiga körväg.</div>';
+  anchor.parentNode.insertBefore(wrap,anchor);
+  document.getElementById('activateDetourBtn').onclick=()=>activate('Orange omläggning');
+  syncActivateButton();
+}
+function syncActivateButton(){
+  const b=document.getElementById('activateDetourBtn'),h=document.getElementById('activateDetourHint');if(!b)return;
+  const d=dir(),has=!!(d?.detour?.length>1),on=activeValid(d);
+  b.disabled=!has;
+  b.textContent=on?'✓ ORANGE OMLÄGGNING AKTIV':'🚌 KÖR PÅ ORANGE OMLÄGGNING';
+  if(h)h.textContent=on?'Bussen följer nu omläggningen. Tryck Kör/Start för simulering.':has?'Omläggningen är klar – tryck knappen för att koppla den till bussen.':'Välj eller rita en omläggning först.';
+  b.style.opacity=has?'1':'.55';
+}
 
 if(oldSnapDetour){
   snapDetour=async function(raw){
@@ -126,21 +154,29 @@ if(oldSnapDetour){
   };
 }
 
-// Auto-navigator: "Använd valt" ska inte bara förhandsvisa utan aktivera den nya körvägen i hela systemet.
+// Auto-navigator: "Använd valt" ska aktivera den nya körvägen i hela systemet.
 document.addEventListener('click',e=>{
   if(e.target?.closest?.('#autoDetourApply'))setTimeout(()=>activate('Vald auto-omläggning'),0);
-  if(e.target?.closest?.('#clearDetourBtn'))setTimeout(()=>{clearActive(dir());state.driveRoute=null;renderAll()},0);
+  if(e.target?.closest?.('#autoDetourPreview'))setTimeout(syncActivateButton,0);
+  if(e.target?.closest?.('#clearDetourBtn'))setTimeout(()=>{clearActive(dir());renderAll()},0);
   if(e.target?.closest?.('#lineBtn,#setOrdinaryBtn')){
     for(const d of Object.values(state.dirs||{}))clearActive(d);
     state.driveRoute=null;
   }
+  setTimeout(syncActivateButton,40);
 });
+
+// Lägg knappen tydligt i omläggningsdelen.
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(installActivateButton,250));
+else setTimeout(installActivateButton,250);
+setInterval(()=>{installActivateButton();syncActivateButton()},1800);
 
 // Återställ aktiv rutt från sparat projekt när sidan öppnas.
 setTimeout(()=>{
   const d=dir();
   if(activeValid(d)){state.driveRoute=buildDriveRoute(d);renderAll()}
   else if(d?.detour?.length>1&&(d._affDone||Number.isFinite(d.cutDistance)))activate('Sparad omläggning');
-},180);
+  installActivateButton();syncActivateButton();
+},220);
 
 })();
