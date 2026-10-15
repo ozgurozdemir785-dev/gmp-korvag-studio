@@ -1,0 +1,70 @@
+name: Fix Linne preset click
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-linne-click.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make Linné preset button self-contained
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # 1) Put detour scripts directly in the static HTML in a deterministic order.
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(
+              r'(<button id="linneNilsPresetBtn"[^>]*?)\s+onclick="[^"]*"([^>]*>)',
+              r'\1\2',
+              s,
+              count=1
+          )
+          marker='<!-- GMP_DETOUR_STATIC_BOOTSTRAP_V1 -->'
+          block='''\n<!-- GMP_DETOUR_STATIC_BOOTSTRAP_V1 -->\n<script src="/detour-search.js?v=linne-click-v4-20261015"></script>\n<script src="/active-detour.js?v=linne-click-v4-20261015"></script>\n<script id="smartAutoDetourScript" src="/smart-auto-detour.js?v=linne-click-v4-20261015"></script>\n<script src="/linne-preset-bootstrap.js?v=linne-click-v4-20261015"></script>\n'''
+          if marker not in s:
+              s=s.replace('</body>',block+'</body>',1)
+          p.write_text(s,encoding='utf-8')
+
+          # 2) Worker must not inject duplicate detour scripts now that index.html owns them.
+          p=Path('_worker.js')
+          s=p.read_text(encoding='utf-8')
+          old='''      html=html.replace('</body>','<script src="/detour-search.js?v=20261015-1152"></script><script src="/active-detour.js?v=20261015-1152"></script></body>');'''
+          new='''      // Detour scripts are embedded directly in index.html (GMP_DETOUR_STATIC_BOOTSTRAP_V1).'''
+          if old in s:
+              s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          # 3) Keep helper assets uncached while we stabilise the route editor.
+          p=Path('_headers')
+          s=p.read_text(encoding='utf-8') if p.exists() else ''
+          add='''\n/linne-preset-bootstrap.js\n  Cache-Control: no-store, no-cache, must-revalidate, max-age=0\n'''
+          if '/linne-preset-bootstrap.js' not in s:
+              s+=add
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "ozgurozdemir785-dev"
+          git config user.email "ozgurozdemir785@gmail.com"
+          git add index.html _worker.js _headers
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "Fix Linné preset button click and load detour scripts statically"
+          git push
