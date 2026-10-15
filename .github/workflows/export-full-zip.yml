@@ -20,12 +20,12 @@ jobs:
         shell: bash
         run: |
           rm -rf export
-          mkdir -p export/GMP-Korvag-Studio-V8.12-X2-3D
-          rsync -a --exclude='.git' --exclude='export' ./ export/GMP-Korvag-Studio-V8.12-X2-3D/
+          mkdir -p export/GMP-Korvag-Studio-V8.13-STOPP-3D
+          rsync -a --exclude='.git' --exclude='export' ./ export/GMP-Korvag-Studio-V8.13-STOPP-3D/
 
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('export/GMP-Korvag-Studio-V8.12-X2-3D/index.html')
+          p=Path('export/GMP-Korvag-Studio-V8.13-STOPP-3D/index.html')
           s=p.read_text(encoding='utf-8')
           patch=r'''
           <style id="gmp3dRestoreCss">
@@ -67,13 +67,21 @@ jobs:
           p.write_text(s,encoding='utf-8')
           PY
 
-          cat > export/GMP-Korvag-Studio-V8.12-X2-3D/API-INSTALLATION.txt <<'EOF'
-          GMP Körväg Studio V8.12 X2 + 3D - API / installation
+          cat > export/GMP-Korvag-Studio-V8.13-STOPP-3D/API-INSTALLATION.txt <<'EOF'
+          GMP Körväg Studio V8.13 STOPP + 3D - API / installation
 
           Denna ZIP innehåller hela appen inklusive:
-          - X2-omläggningen Linnéplatsen -> Övre Husargatan -> Nya Allén -> Parkgatan -> Polhemsplatsen -> Hisingsbron -> Hjalmar
+          - smart automatisk omläggningsnavigator
+          - ordinarie hållplatslägen som grundläge
+          - automatisk kontroll av hållplatser när en sträcka dras in
+          - sökning efter officiella alternativa GTFS/Västtrafik-hållplatslägen nära den nya körvägen
+          - när ett alternativt hållplatsläge väljs räknas själva bussrutten om via hållplatsläget
+          - röd/indragen ordinarie sträcka behandlas som förbjuden vid den omräkningen
+          - kontroll som stoppar alternativ som försöker återgå genom röd sträcka eller använder för mycket olämplig smågata/serviceväg
+          - stop-detour-manager.js
+          - X2/Linné-Hjalmar specialfunktionerna finns kvar
           - 2D, Satellit, 3D satellit, Förarvy 3D, 4D satellit och 4D förarvy
-          - extra snabbknapp för 3D satellit så 3D inte försvinner ur gränssnittet
+          - extra snabbknapp för 3D satellit
           - index.html
           - _worker.js
           - Trafikverket API-integration /api/traffic-events
@@ -96,7 +104,7 @@ jobs:
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GMP-Korvag-Studio-V8.12-X2-3D-FULL
-          path: export/GMP-Korvag-Studio-V8.12-X2-3D
+          name: GMP-Korvag-Studio-V8.13-STOPP-3D-FULL
+          path: export/GMP-Korvag-Studio-V8.13-STOPP-3D
           if-no-files-found: error
           compression-level: 6
