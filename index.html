@@ -87,7 +87,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 /* V7.6 CLEAN CONTROL: kompakt högerpanel, avancerade verktyg finns kvar men är undanlagda */
 .compactControl{padding:10px;display:grid;gap:9px}.compactCard{border:1px solid #e3e7ed;border-radius:12px;background:#fff;overflow:hidden}.compactTitle{padding:8px 9px;background:#f8fafc;border-bottom:1px solid #e3e7ed;font-size:10px;font-weight:950;text-transform:uppercase;letter-spacing:.05em;color:#475467}.compactGrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px}.compactGrid .wide{grid-column:1/-1}.compactGrid .btn{font-size:11px;padding:8px 6px}.compactToggles{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px}.compactToggle{border:1px solid #d0d5dd;background:#fff;border-radius:9px;padding:8px 6px;font-size:10px;font-weight:900;color:#344054}.compactToggle.active{background:#eaf2ff;border-color:#86b4ed;color:#0b57b8}.advancedPanelContent{display:none}.advancedPanelContent.open{display:block;padding:0 10px 10px}.advancedBack{display:none;position:sticky;top:46px;z-index:4;padding:8px 10px;background:#fff;border-bottom:1px solid #e4e7ec}.advancedPanelContent.open+.advancedBack{display:block}.panel.right .panelHead strong{font-size:12px}.signalCtl{display:none!important}.driveAssistHud{display:none!important}.driverBladeStatus{display:none!important}
 
-/* V8.11 OMLÄGGNING FIXORDING — kontrollpanel utanför inspelningsytan */
+/* V8.6 MAP-ONLY RECORDING — kontrollpanel utanför inspelningsytan */
 .workspace{grid-template-columns:1fr!important}
 .left,.right{position:absolute!important;top:0;bottom:0;z-index:96!important;box-shadow:0 16px 42px rgba(15,23,42,.28);transition:transform .2s ease!important}
 .left{left:0;width:min(300px,88vw)!important;transform:translateX(-102%)}
@@ -163,7 +163,6 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
           <div class="sectionTitle">2. Ordinarie linje & omläggning</div>
           <div class="sectionBody toolGrid">
             <button id="setOrdinaryBtn" class="btn wide">🔵 Sätt rutt som ordinarie linje</button>
-            <button id="linneNilsPresetBtn" class="btn green wide" style="min-height:44px;font-weight:900">🚌 LINNÉPLATSEN → NILS ERICSON via ÖVRE HUSARGATAN</button>
             <button id="affectBtn" class="btn wide">↪ Omläggning mellan 2 punkter</button>
             <button id="cutLineBtn" class="btn red wide">✂ Avbryt ordinarie linje här</button>
             <button id="detourBtn" class="btn red wide">✍ Rita ny körväg / omläggning</button>
@@ -1659,15 +1658,9 @@ bindTrafficStudio();
 $('modalClose').onclick=closeModal;$('modalBg').onclick=e=>{if(e.target===$('modalBg'))closeModal()};$('timeSlider').oninput=e=>{if((state.replay||[]).length){seekReplayTime((+e.target.value||0)/10);return}state.busProgress=Math.max(0,Math.min(1,(+e.target.value||0)/100));const r=buildSimRoute(dir()),p=motionSample(r,state.busProgress);renderBus();renderTrafficStudioStatus(p,r);renderTrafficStudioPlayback(r);if(googleViewMode&&p)updateGoogleView(p,r,true)};$('replayBack10').onclick=()=>seekReplayDelta(-10);$('replayBack5').onclick=()=>seekReplayDelta(-5);$('replayForward5').onclick=()=>seekReplayDelta(5);$('replayForward10').onclick=()=>seekReplayDelta(10);
 window.addEventListener('resize',renderAll);document.addEventListener('keydown',e=>{if(e.key==='Escape'){setTool('nav');closeModal()}if(e.code==='Space'&&!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)){if(state.playing){e.preventDefault();pause()}else{spacePanDown=true;const vp=$('mapViewport');vp?.classList.add('panMode');if(vp)vp.style.cursor='grab';e.preventDefault()}}});document.addEventListener('keyup',e=>{if(e.code==='Space'){spacePanDown=false;setTool(state.tool)}});bindMap()}
 function syncRuleUI(){const map={ruleAutoBrake:'autoBrake',ruleAutoSignals:'autoSignals',ruleStopBay:'stopBay',ruleObjects:'objects',ruleBusRouting:'busRouting',ruleRoadLock:'roadLock',ruleRoundabout:'roundabout',ruleTurnMargins:'turnMargins',ruleGroundLevel:'groundLevel'};for(const [id,k] of Object.entries(map))if($(id))$(id).checked=state.rules[k]!==false;setRouteSourceStatus(state.rules.busRouting?'BUSS-routing aktiv – bussgata/busskörfält, enkelriktning, hastighet, rondell och vägplan används från OSM/GTFS.':'Bussrouting av – reservprofil används.',state.rules.busRouting)}
-function init(){bind();bindTrafficLegend();loadLocal();syncRecordControls(false);if($('tsStopGeofence'))$('tsStopGeofence').checked=vis().stopGeofences!==false;state.trafficStudio.showStopGeofences=vis().stopGeofences!==false;applyVisibility();if($('busType'))$('busType').value=state.vehicleType||'18';syncVehicleParamUI();syncRuleUI();setTool('nav');refreshGoogleKeyState();clearTiles();renderAll();setTimeout(()=>scheduleTrafficRefresh(true),1600);setInterval(()=>{if(activeTrafficRoute().length>1)refreshTrafficFeed(true)},120000);toast('V8.11 OMLÄGGNING FIX – API, live trafik och kartinspelning klara.',5200)}
+function init(){bind();bindTrafficLegend();loadLocal();syncRecordControls(false);if($('tsStopGeofence'))$('tsStopGeofence').checked=vis().stopGeofences!==false;state.trafficStudio.showStopGeofences=vis().stopGeofences!==false;applyVisibility();if($('busType'))$('busType').value=state.vehicleType||'18';syncVehicleParamUI();syncRuleUI();setTool('nav');refreshGoogleKeyState();clearTiles();renderAll();setTimeout(()=>scheduleTrafficRefresh(true),1600);setInterval(()=>{if(activeTrafficRoute().length>1)refreshTrafficFeed(true)},120000);toast('V8.6 MAP-ONLY REC – API, live trafik och kartinspelning klara.',5200)}
 init();
 })();
 </script>
-
-<!-- GMP_DETOUR_STATIC_BOOTSTRAP_V1 -->
-<script src="/detour-search.js?v=linne-click-v4-20261015"></script>
-<script src="/active-detour.js?v=linne-click-v4-20261015"></script>
-<script id="smartAutoDetourScript" src="/smart-auto-detour.js?v=linne-click-v4-20261015"></script>
-<script src="/linne-preset-bootstrap.js?v=linne-click-v4-20261015"></script>
-</body>
+<script src="/linne-preset-button.js?v=preserve-api-20261015"></script></body>
 </html>
