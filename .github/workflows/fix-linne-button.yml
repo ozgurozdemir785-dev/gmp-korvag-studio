@@ -23,52 +23,33 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          # 1) Smart detour: install the preset even if the advanced auto box is not ready yet.
-          p=Path('smart-auto-detour.js')
-          s=p.read_text(encoding='utf-8')
-          old="""function installSmartAuto(){
-  const box=$id('autoDetourBox');
-  if(!box)return false;
-  installSimpleCard();
-  installLinnePreset();"""
-          new="""function installSmartAuto(){
-  installSimpleCard();
-  installLinnePreset();
-  const box=$id('autoDetourBox');
-  if(!box)return !!$id('linneNilsPresetBtn');"""
+          p = Path('smart-auto-detour.js')
+          s = p.read_text(encoding='utf-8')
+          old = "function installSmartAuto(){\n  const box=$id('autoDetourBox');\n  if(!box)return false;\n  installSimpleCard();\n  installLinnePreset();"
+          new = "function installSmartAuto(){\n  installSimpleCard();\n  installLinnePreset();\n  const box=$id('autoDetourBox');\n  if(!box)return !!$id('linneNilsPresetBtn');"
           if old in s:
-              s=s.replace(old,new,1)
-          s=s.replace("tries>25","tries>500")
-          p.write_text(s,encoding='utf-8')
+              s = s.replace(old, new, 1)
+          s = s.replace('tries>25', 'tries>500')
+          p.write_text(s, encoding='utf-8')
 
-          # 2) Active loader: force the new smart script instead of any cached V2 copy.
-          p=Path('active-detour.js')
-          s=p.read_text(encoding='utf-8')
-          s=s.replace('/smart-auto-detour.js?v=blocked-v2-20261015','/smart-auto-detour.js?v=linne-v3-20261015-1152')
-          p.write_text(s,encoding='utf-8')
+          p = Path('active-detour.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('/smart-auto-detour.js?v=blocked-v2-20261015', '/smart-auto-detour.js?v=linne-v3-20261015-1152')
+          p.write_text(s, encoding='utf-8')
 
-          # 3) HTML worker injection: cache-bust both helper scripts.
-          p=Path('_worker.js')
-          s=p.read_text(encoding='utf-8')
-          s=s.replace('/detour-search.js?v=1','/detour-search.js?v=20261015-1152')
-          s=s.replace('/active-detour.js?v=1','/active-detour.js?v=20261015-1152')
-          p.write_text(s,encoding='utf-8')
+          p = Path('_worker.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('/detour-search.js?v=1', '/detour-search.js?v=20261015-1152')
+          s = s.replace('/active-detour.js?v=1', '/active-detour.js?v=20261015-1152')
+          p.write_text(s, encoding='utf-8')
 
-          # 4) Auto navigator: retry installation if the left panel is created a little later.
-          p=Path('detour-search.js')
-          s=p.read_text(encoding='utf-8')
-          old="""if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{setTimeout(install,0);setTimeout(installAutoHooks,50)});else{setTimeout(install,0);setTimeout(installAutoHooks,50)}
-})();"""
-          new="""function startDetourInstaller(){
-  let n=0;
-  const run=()=>{n++;try{install();installAutoHooks()}catch(e){console.warn(e)}if($id('autoDetourBox')||n>500)clearInterval(t)};
-  const t=setInterval(run,120);run();
-}
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startDetourInstaller);else startDetourInstaller();
-})();"""
+          p = Path('detour-search.js')
+          s = p.read_text(encoding='utf-8')
+          old = "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{setTimeout(install,0);setTimeout(installAutoHooks,50)});else{setTimeout(install,0);setTimeout(installAutoHooks,50)}\n})();"
+          new = "function startDetourInstaller(){\n  let n=0;\n  const run=()=>{n++;try{install();installAutoHooks()}catch(e){console.warn(e)}if($id('autoDetourBox')||n>500)clearInterval(t)};\n  const t=setInterval(run,120);run();\n}\nif(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startDetourInstaller);else startDetourInstaller();\n})();"
           if old in s:
-              s=s.replace(old,new,1)
-          p.write_text(s,encoding='utf-8')
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
           PY
 
       - name: Commit fix
