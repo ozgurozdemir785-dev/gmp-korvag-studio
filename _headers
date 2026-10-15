@@ -11,3 +11,6 @@
 
 /detour-search.js
   Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/linne-preset-bootstrap.js
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0

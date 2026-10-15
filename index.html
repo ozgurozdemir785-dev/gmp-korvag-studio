@@ -163,7 +163,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
           <div class="sectionTitle">2. Ordinarie linje & omläggning</div>
           <div class="sectionBody toolGrid">
             <button id="setOrdinaryBtn" class="btn wide">🔵 Sätt rutt som ordinarie linje</button>
-            <button id="linneNilsPresetBtn" class="btn green wide" style="min-height:44px;font-weight:900" onclick="if(window.GMPLinnePreset){window.GMPLinnePreset()}else{alert('Omläggningsmodulen laddas. Vänta en sekund och tryck igen.')}">🚌 LINNÉPLATSEN → NILS ERICSON via ÖVRE HUSARGATAN</button>
+            <button id="linneNilsPresetBtn" class="btn green wide" style="min-height:44px;font-weight:900">🚌 LINNÉPLATSEN → NILS ERICSON via ÖVRE HUSARGATAN</button>
             <button id="affectBtn" class="btn wide">↪ Omläggning mellan 2 punkter</button>
             <button id="cutLineBtn" class="btn red wide">✂ Avbryt ordinarie linje här</button>
             <button id="detourBtn" class="btn red wide">✍ Rita ny körväg / omläggning</button>
@@ -1663,5 +1663,11 @@ function init(){bind();bindTrafficLegend();loadLocal();syncRecordControls(false)
 init();
 })();
 </script>
+
+<!-- GMP_DETOUR_STATIC_BOOTSTRAP_V1 -->
+<script src="/detour-search.js?v=linne-click-v4-20261015"></script>
+<script src="/active-detour.js?v=linne-click-v4-20261015"></script>
+<script id="smartAutoDetourScript" src="/smart-auto-detour.js?v=linne-click-v4-20261015"></script>
+<script src="/linne-preset-bootstrap.js?v=linne-click-v4-20261015"></script>
 </body>
 </html>
