@@ -20,36 +20,83 @@ jobs:
         shell: bash
         run: |
           rm -rf export
-          mkdir -p export/GMP-Korvag-Studio-V8.10
-          rsync -a --exclude='.git' --exclude='export' ./ export/GMP-Korvag-Studio-V8.10/
-          cat > export/GMP-Korvag-Studio-V8.10/API-INSTALLATION.txt <<'EOF'
-          GMP Körväg Studio V8.10 - API / installation
+          mkdir -p export/GMP-Korvag-Studio-V8.12-X2-3D
+          rsync -a --exclude='.git' --exclude='export' ./ export/GMP-Korvag-Studio-V8.12-X2-3D/
 
-          Denna ZIP innehåller hela appen från GitHub, inklusive:
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('export/GMP-Korvag-Studio-V8.12-X2-3D/index.html')
+          s=p.read_text(encoding='utf-8')
+          patch=r'''
+          <style id="gmp3dRestoreCss">
+          .mapHudTop .segmented{display:flex!important;visibility:visible!important;opacity:1!important;overflow-x:auto;max-width:min(760px,72vw)}
+          #mode3d,#modeDriver,#mode4dSat,#mode4dDriver{display:inline-block!important;visibility:visible!important}
+          #gmp3dQuickBtn{white-space:nowrap}
+          </style>
+          <script id="gmp3dRestoreScript">
+          (()=>{
+            const restore=()=>{
+              try{
+                if(typeof state!=='undefined'&&state.visibility){
+                  state.visibility.modeBar=true;
+                  state.visibility.rightGoogle=true;
+                  state.visibility.googleViewBar=true;
+                  state.visibility.googleCamBar=true;
+                }
+                document.querySelector('.mapHudTop .segmented')?.classList.remove('visHidden');
+                ['mode2d','modeSat','mode3d','modeDriver','mode4dSat','mode4dDriver','rightSecGoogle'].forEach(id=>document.getElementById(id)?.classList.remove('visHidden'));
+                const mini=document.querySelector('.mapHudTop .mapMini');
+                if(mini&&!document.getElementById('gmp3dQuickBtn')){
+                  const b=document.createElement('button');
+                  b.id='gmp3dQuickBtn'; b.className='btn small'; b.textContent='🛰️ 3D satellit';
+                  b.title='Öppna 3D satellit';
+                  b.onclick=()=>{ try{ openGoogleView('3d'); }catch(e){ console.error(e); } };
+                  mini.prepend(b);
+                }
+                if(typeof applyVisibility==='function')applyVisibility();
+              }catch(e){console.warn('3D restore',e)}
+            };
+            if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(restore,40));
+            else setTimeout(restore,40);
+            setTimeout(restore,800);
+          })();
+          </script>
+          '''
+          if 'gmp3dRestoreScript' not in s:
+              s=s.replace('</body>',patch+'\n</body>')
+          p.write_text(s,encoding='utf-8')
+          PY
+
+          cat > export/GMP-Korvag-Studio-V8.12-X2-3D/API-INSTALLATION.txt <<'EOF'
+          GMP Körväg Studio V8.12 X2 + 3D - API / installation
+
+          Denna ZIP innehåller hela appen inklusive:
+          - X2-omläggningen Linnéplatsen -> Övre Husargatan -> Nya Allén -> Parkgatan -> Polhemsplatsen -> Hisingsbron -> Hjalmar
+          - 2D, Satellit, 3D satellit, Förarvy 3D, 4D satellit och 4D förarvy
+          - extra snabbknapp för 3D satellit så 3D inte försvinner ur gränssnittet
           - index.html
           - _worker.js
           - Trafikverket API-integration /api/traffic-events
           - GTFS/Västtrafik-logik och proxykod
-          - routing, geocoding, OSM/busway-proxyer
-          - detour-search.js
-          - active-detour.js
-          - smart-auto-detour.js
-          - bussmodellerna bus12.glb, bus15.glb, bus18.glb, bus21.glb
+          - routing, geocoding och OSM/busway-proxyer
+          - detour-search.js, active-detour.js, smart-auto-detour.js
+          - bussmodeller bus12.glb, bus15.glb, bus18.glb, bus21.glb
           - Cloudflare _headers och deployfiler
 
           VIKTIGT OM API-NYCKLAR:
-          Hemliga API-nycklar ligger av säkerhetsskäl INTE i ZIP-filen eller i källkoden.
-          Trafikverkets nyckel ska sättas som Cloudflare Pages/Workers secret/environment variable:
+          Hemliga API-nycklar ligger av säkerhetsskäl INTE i ZIP-filen.
+          Trafikverkets nyckel ska ligga som Cloudflare secret/environment variable:
           TRAFIKVERKET_API_KEY
 
-          Om du deployar ZIP-filen till samma Cloudflare-projekt där hemligheten redan finns behöver du inte lägga in nyckeln i filerna.
-          Lägg aldrig in riktiga API-nycklar direkt i index.html eller _worker.js.
+          Google Maps-nyckeln och Trafiklab/GTFS-nyckeln hanteras via appens befintliga inställningar.
+          Om ZIP-filen deployas till samma Cloudflare-projekt behålls projektets befintliga secrets.
+          Lägg aldrig riktiga hemliga nycklar direkt i index.html eller _worker.js.
           EOF
 
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GMP-Korvag-Studio-V8.10-FULL
-          path: export/GMP-Korvag-Studio-V8.10
+          name: GMP-Korvag-Studio-V8.12-X2-3D-FULL
+          path: export/GMP-Korvag-Studio-V8.12-X2-3D
           if-no-files-found: error
           compression-level: 6
