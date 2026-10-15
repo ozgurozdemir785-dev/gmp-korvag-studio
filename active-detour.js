@@ -1,7 +1,7 @@
 (()=>{
 'use strict';
 
-/* ACTIVE_DETOUR_RUNTIME_V15_SMART_AUTO */
+/* ACTIVE_DETOUR_RUNTIME_V16_LOCAL_FOCUS */
 const oldBuildSimRoute=buildSimRoute;
 const oldBuildDriveRoute=buildDriveRoute;
 const oldRenderOverlay=renderOverlay;
@@ -59,6 +59,18 @@ function composeActive(d){
 }
 function activeValid(d){return !!(d?._activeDetourRoute?.length>1&&d?.detour?.length>1&&d._activeDetourSig===routeSig(d.detour)&&d._activeDetourBaseSig===routeSig(d.ordinary))}
 function clearActive(d){if(!d)return;d._activeDetourRoute=[];d._activeDetourSig='';d._activeDetourBaseSig='';state.driveRoute=null;syncActivateButton()}
+function focusDetour(d,active){
+  try{
+    let focus=(d?.detour||[]).map(c=>[+c[0],+c[1]]);
+    if(d?.affected&&d._affDone&&d?.ordinary?.length){
+      let [ia,ib]=d.affected.map(Number);if(ia>ib)[ia,ib]=[ib,ia];
+      const a=distAtIndex(d.ordinary,ia),b=distAtIndex(d.ordinary,ib);
+      const blocked=routeSliceByDistance(d.ordinary,a,b,12);
+      focus=join([blocked,focus]);
+    }
+    if(focus?.length>1)fitCoords(focus,115);else fitCoords(active,70);
+  }catch{}
+}
 function activate(label='Ny omläggning'){
   const d=dir(),active=composeActive(d);
   if(!active?.length||active.length<2){try{toast('Det finns ingen färdig omläggning att aktivera ännu.',3500)}catch{}return false}
@@ -66,7 +78,7 @@ function activate(label='Ny omläggning'){
   d.routeSource=(d.routeSource||label).replace(/\s*•\s*AKTIV KÖRVÄG/g,'')+' • AKTIV KÖRVÄG';d.freeActive=false;
   if(state.visibility){state.visibility.detour=true;state.visibility.affected=true;state.visibility.driveLine=true;state.visibility.baseRoute=true}
   state.playing=false;state.paused=false;state.busProgress=0;state.simSpeed=0;state.driveRoute=buildDriveRoute(d);
-  try{resetReplay()}catch{};try{fitCoords(active,70)}catch{};requestAnimationFrame(()=>{try{renderAll()}catch{}});syncActivateButton();
+  try{resetReplay()}catch{};focusDetour(d,active);requestAnimationFrame(()=>{try{renderAll()}catch{}});syncActivateButton();
   const st=document.getElementById('autoDetourStatus');if(st){st.className='autoDetourStatus';st.innerHTML='✓ <b>AKTIV KÖRVÄG</b> – orange omläggning är nu bussens riktiga körväg.'}
   try{toast(label+' är aktiv. Bussen kör nu på den orange omläggningen.',4200)}catch{}
   const sig=d._activeDetourSig;setTimeout(()=>{if(d._activeDetourSig!==sig)return;try{enrichDirRoadMeta(d,active).catch(()=>{})}catch{}},1400);
@@ -127,7 +139,7 @@ document.addEventListener('click',e=>{
 
 function loadSmartAuto(){
   if(document.getElementById('smartAutoDetourScript'))return;
-  const s=document.createElement('script');s.id='smartAutoDetourScript';s.src='/smart-auto-detour.js?v=1';document.head.appendChild(s);
+  const s=document.createElement('script');s.id='smartAutoDetourScript';s.src='/smart-auto-detour.js?v=blocked-v2-20261015';document.head.appendChild(s);
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{setTimeout(installActivateButton,180);setTimeout(loadSmartAuto,260)});
