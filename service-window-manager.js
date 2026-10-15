@@ -35,7 +35,7 @@ function refresh(){
   ensureUI();const a=A(),d=a?.dir?.();if(!d||!$('serviceStartStop'))return;
   const stops=currentStops(),startSel=$('serviceStartStop'),endSel=$('serviceEndStop');
   const currentStart=String(d.serviceStartStopId||''),currentEnd=String(d.serviceEndStopId||'');
-  const opts=stops.map((st,i)=>`<option value="${esc(stopKey(st,i))}">${i+1}. ${esc(st.name||'Hållplats')}${st.code?' · '+esc(st.code):''}${st.serve===false||st.closed?' · INDRAgen':''}</option>`).join('');
+  const opts=stops.map((st,i)=>`<option value="${esc(stopKey(st,i))}">${i+1}. ${esc(st.name||'Hållplats')}${st.code?' · '+esc(st.code):''}${st.serve===false||st.closed?' · INDRAGEN':''}</option>`).join('');
   startSel.innerHTML='<option value="">Första hållplatsen – hela linjen</option>'+opts;
   endSel.innerHTML='<option value="">Sista hållplatsen – hela linjen</option>'+opts;
   if([...startSel.options].some(o=>o.value===currentStart))startSel.value=currentStart;else startSel.value='';
@@ -48,14 +48,16 @@ function resetWindow(){const a=A(),d=a?.dir?.();if(!a||!d)return;delete d.servic
 function applyWindow(startNow){
   const a=A(),d=a?.dir?.();if(!a||!d)return;const sk=$('serviceStartStop')?.value||'',ek=$('serviceEndStop')?.value||'',s=selectedStopByKey(sk),e=selectedStopByKey(ek);
   if(s&&e&&e.i<=s.i){const el=$('serviceWindowStatus');if(el)el.textContent='⚠ Sluthållplatsen måste ligga efter starthållplatsen i vald riktning.';return}
+  if(s&&(s.st.serve===false||s.st.closed)){const el=$('serviceWindowStatus');if(el)el.textContent='⚠ Den valda starthållplatsen är indragen. Välj ett aktivt eller alternativt hållplatsläge.';return}
+  if(e&&(e.st.serve===false||e.st.closed)){const el=$('serviceWindowStatus');if(el)el.textContent='⚠ Den valda sluthållplatsen är indragen. Välj ett aktivt eller alternativt hållplatsläge.';return}
   d.serviceStartStopId=sk||'';d.serviceEndStopId=ek||'';a.state.driveRoute=null;a.state.busProgress=0;a.state.simSpeed=0;
   const route=a.buildDriveRoute?.(d)||[];
   if(s&&route.length>1){const n=a.nearestPointOnRoute?.(route,s.st.coord);if(!n||n.offset>65){const el=$('serviceWindowStatus');if(el)el.textContent='⚠ Vald starthållplats ligger inte på den aktiva körvägen. Välj en trafikerad hållplats eller ändra omläggningen.';return}}
   if(e&&route.length>1){const n=a.nearestPointOnRoute?.(route,e.st.coord);if(!n||n.offset>65){const el=$('serviceWindowStatus');if(el)el.textContent='⚠ Vald sluthållplats ligger inte på den aktiva körvägen.';return}}
   updateStatus();a.renderStopManager?.();a.renderAll?.();
-  try{a.toast?.(`Bussen ${s?'sätts i trafik vid '+s.st.name:'kör från linjens början'}${e?' och slutar vid '+e.st.name:''}.`,3800)}catch{}
+  try{a.toast?.(`Bussen ${s?'sätts i trafik vid '+s.st.name:'kör från linjens början'}${e?' och slutar vid '+e.st.name:''}. Originalrutten ligger kvar.`,4000)}catch{}
   if(startNow){try{if(a.state.playing)a.state.playing=false}catch{};setTimeout(()=>document.getElementById('playBtn')?.click(),120)}
 }
-function watch(){ensureUI();const a=A(),d=a?.dir?.();if(!d)return;const sig=(d.stops||[]).map((s,i)=>stopKey(s,i)+'|'+(s.name||'')).join('§')+'|'+(a.state?.direction||'');if(watch.sig!==sig){watch.sig=sig;refresh()}}
+function watch(){ensureUI();const a=A(),d=a?.dir?.();if(!d)return;const sig=(d.stops||[]).map((s,i)=>stopKey(s,i)+'|'+(s.name||'')+'|'+(s.serve!==false&&!s.closed)).join('§')+'|'+(a.state?.direction||'');if(watch.sig!==sig){watch.sig=sig;refresh()}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{setInterval(watch,850);setTimeout(watch,200)});else{setInterval(watch,850);setTimeout(watch,200)}
 })();
