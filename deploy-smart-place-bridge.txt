@@ -1,0 +1,1 @@
+Deploy smart place detour navigator with automatic stop/place suggestions and safe GMP_APP bridge.
