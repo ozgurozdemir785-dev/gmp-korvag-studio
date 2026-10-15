@@ -1,6 +1,7 @@
 (()=>{
 'use strict';
 /* SMART_PLACE_DETOUR_V4
+   SMART_PLACE_TERMINAL_SEARCH_V1
    Generisk omläggningsnavigator. Använder appens interna navigator via window.GMP_APP,
    känner igen Västtrafik-hållplatser på den laddade linjen, kompletterar med kartträffar,
    och bygger omläggning mellan vald start/slut med valfria via-punkter.
@@ -17,6 +18,7 @@ const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u03
 function isCentralAlias(v){const n=norm(v);return n.includes('nordstan')||n.includes('nils ericson')||n.includes('nils erikson')}
 function isCentralStopName(v){const n=norm(v);return n.includes('nordstan')||n.includes('nils ericson')||n.includes('nils erikson')}
 function mapAliasQuery(q){return isCentralAlias(q)?'Nils Ericson Terminalen':q}
+function isTerminalName(v){const n=norm(v);return /terminal|busstation|bus station|resecentrum|resecenter|centralstation|knutpunkt/.test(n)}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 function status(text,kind=''){
@@ -54,18 +56,47 @@ function localMatches(q){
   }
   return out.sort((a,b)=>b.score-a.score).slice(0,10);
 }
+function loadedTerminalMatches(q){
+  const nq=norm(q);if(!nq)return[];const toks=nq.split(' ').filter(Boolean),groups=new Map();
+  for(const x of allLoadedStops()){
+    const n=norm(x.name),match=isCentralAlias(nq)?isCentralStopName(n):toks.every(t=>n.includes(t));if(!match)continue;
+    const key=n||x.name;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(x);
+  }
+  const out=[];
+  for(const arr of groups.values()){
+    const name=arr[0]?.name||'';if(!name)continue;
+    if(arr.length<2&&!isTerminalName(name)&&!isCentralStopName(name))continue;
+    const coord=[arr.reduce((a,x)=>a+x.coord[0],0)/arr.length,arr.reduce((a,x)=>a+x.coord[1],0)/arr.length];
+    out.push({kind:'terminal',name,detail:`Bussterminal / knutpunkt · Västtrafik · ${arr.length} hållplatsläge${arr.length===1?'':'n'} på laddad linje`,coord,official:true,terminal:true,score:isCentralStopName(name)?190:145});
+  }
+  return out.sort((a,b)=>b.score-a.score).slice(0,6);
+}
+function classifyMapResult(x,q){
+  const meta=((x.class||'')+' '+(x.type||'')+' '+(x.addresstype||'')+' '+(x.display_name||'')).toLowerCase();
+  const terminal=/bus_station|bus_terminal|coach_station|transportation/.test(meta)||isTerminalName(x.display_name||'');
+  const stop=!terminal&&/bus_stop|platform|public_transport|stop_position|station/.test(meta);
+  return {kind:terminal?'terminal':stop?'stop':'place',name:(x.display_name||q).split(',')[0],detail:(terminal?'Bussterminal / knutpunkt · ':'')+(x.display_name||q),coord:[+x.lon,+x.lat],official:false,terminal,score:terminal?88:stop?55:30};
+}
 async function mapMatches(q){
   if(!q?.trim())return[];
   try{
-    const mapQ=mapAliasQuery(q);const u='/geo/search?format=json&addressdetails=1&limit=8&countrycodes=se&q='+encodeURIComponent(mapQ.trim()+', Göteborg');
-    const r=await fetch(u,{headers:{Accept:'application/json'},cache:'no-store'});if(!r.ok)return[];
-    const j=await r.json();
-    return (j||[]).filter(x=>Number.isFinite(+x.lon)&&Number.isFinite(+x.lat)).map(x=>({kind:/bus_stop|platform|public_transport|station/i.test((x.class||'')+' '+(x.type||''))?'stop':'place',name:(x.display_name||q).split(',')[0],detail:x.display_name||q,coord:[+x.lon,+x.lat],official:false,score:30}));
+    const base=mapAliasQuery(q).trim(),queries=[base+', Göteborg'];
+    if(!/terminal|busstation|resecentrum|resecenter/i.test(base))queries.push(base+' busstation, Göteborg');
+    const responses=await Promise.all(queries.map(async qq=>{
+      const u='/geo/search?format=json&addressdetails=1&limit=8&countrycodes=se&q='+encodeURIComponent(qq);
+      try{const r=await fetch(u,{headers:{Accept:'application/json'},cache:'no-store'});return r.ok?(await r.json()):[]}catch{return[]}
+    }));
+    const seen=new Set(),out=[];
+    for(const x of responses.flat()){
+      if(!Number.isFinite(+x.lon)||!Number.isFinite(+x.lat))continue;
+      const item=classifyMapResult(x,q),k=norm(item.name)+'_'+item.coord.map(v=>v.toFixed(4)).join('_');if(seen.has(k))continue;seen.add(k);out.push(item);
+    }
+    return out.sort((a,b)=>b.score-a.score).slice(0,10);
   }catch{return[]}
 }
 async function suggestions(q){
-  const local=localMatches(q),map=await mapMatches(q),seen=new Set(),out=[];
-  for(const x of [...local,...map]){
+  const local=localMatches(q),terminals=loadedTerminalMatches(q),map=await mapMatches(q),seen=new Set(),out=[];
+  for(const x of [...terminals,...local,...map]){
     const k=norm(x.name)+'_'+x.coord.map(v=>v.toFixed(4)).join('_');if(seen.has(k))continue;seen.add(k);out.push(x);if(out.length>=10)break;
   }
   return out;
@@ -75,7 +106,7 @@ function hideLists(except=''){for(const id of ['smartFromSuggestions','smartViaS
 function renderSuggestions(inputId,items){
   const box=$(listId(inputId));if(!box)return;
   if(!items.length){box.innerHTML='<div class="spEmpty">Ingen träff ännu.</div>';box.classList.remove('hidden');return}
-  box.innerHTML=items.map((x,i)=>`<button type="button" class="spHit" data-i="${i}"><b>${x.kind==='stop'?'🚏':'📍'} ${esc(x.name)}${x.official?'<span>VÄSTTRAFIK</span>':''}</b><small>${esc(x.detail)}</small></button>`).join('');
+  box.innerHTML=items.map((x,i)=>`<button type="button" class="spHit" data-i="${i}"><b>${x.kind==='terminal'?'🚌':x.kind==='stop'?'🚏':'📍'} ${esc(x.name)}${x.official?'<span>VÄSTTRAFIK</span>':x.kind==='terminal'?'<span>TERMINAL</span>':''}</b><small>${esc(x.detail)}</small></button>`).join('');
   box.classList.remove('hidden');
   box.querySelectorAll('.spHit').forEach(b=>b.onclick=()=>selectSuggestion(inputId,items[+b.dataset.i]));
 }
@@ -236,13 +267,13 @@ function installStyle(){if($('smartPlaceStyle'))return;const s=document.createEl
 function install(){
   installStyle();const host=$('setOrdinaryBtn')?.parentNode||$('leftSecRoute')?.querySelector('.sectionBody');if(!host)return false;
   let btn=$('linneNilsPresetBtn');if(!btn){btn=document.createElement('button');btn.id='linneNilsPresetBtn';btn.className='btn green wide';btn.style.cssText='min-height:44px;font-weight:900';const o=$('setOrdinaryBtn');o?.nextSibling?host.insertBefore(btn,o.nextSibling):host.appendChild(btn)}
-  btn.textContent='🧭 SMART OMLÄGGNING – sök hållplats/gata';btn.type='button';
+  btn.textContent='🧭 SMART OMLÄGGNING – hållplats/gata/terminal';btn.type='button';
   if(!$('smartPlacePanel')){
     const p=document.createElement('div');p.id='smartPlacePanel';p.className='hidden';p.innerHTML=`<div class="spTitle">🧭 Smart omläggningsnavigator</div>
-      <div class="spField"><label>Från – börja skriva, t.ex. Linnéplatsen</label><input id="smartFrom" autocomplete="off" placeholder="Linnéplatsen"><div id="smartFromSuggestions" class="spSuggest hidden"></div></div>
-      <div class="spField"><label>Via – sök gata/hållplats och välj träff</label><div class="spViaRow"><input id="smartVia" autocomplete="off" placeholder="Övre Husargatan"><button id="smartViaAdd" type="button" class="btn small">+ Lägg till</button></div><div id="smartViaSuggestions" class="spSuggest hidden"></div></div>
+      <div class="spField"><label>Från – sök hållplats, gata eller bussterminal</label><input id="smartFrom" autocomplete="off" placeholder="Linnéplatsen, Hjalmar eller Nils Ericson Terminalen"><div id="smartFromSuggestions" class="spSuggest hidden"></div></div>
+      <div class="spField"><label>Via – sök gata, hållplats eller bussterminal och välj träff</label><div class="spViaRow"><input id="smartVia" autocomplete="off" placeholder="Övre Husargatan"><button id="smartViaAdd" type="button" class="btn small">+ Lägg till</button></div><div id="smartViaSuggestions" class="spSuggest hidden"></div></div>
       <div id="smartViaChips" class="spChips"></div>
-      <div class="spField"><label>Till – där bussen återgår till ordinarie linje</label><input id="smartTo" autocomplete="off" placeholder="Hjalmar Brantingsplatsen"><div id="smartToSuggestions" class="spSuggest hidden"></div></div>
+      <div class="spField"><label>Till – där bussen återgår till ordinarie linje</label><input id="smartTo" autocomplete="off" placeholder="Hållplats eller bussterminal"><div id="smartToSuggestions" class="spSuggest hidden"></div></div>
       <div class="spActions"><button id="smartX2Example" type="button" class="btn">X2 snabbval</button><button id="smartBuildBtn" type="button" class="btn primary">⚡ BYGG OMLÄGGNING</button></div>
       <div id="smartPlaceStatus" class="smartPlaceStatus">Skriv en plats. Träffar från den laddade Västtrafiklinjen visas först, sedan kartträffar.</div>`;
     host.insertBefore(p,btn.nextSibling);bindSuggest('smartFrom');bindSuggest('smartVia');bindSuggest('smartTo');
