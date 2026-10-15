@@ -117,3 +117,5 @@ function installLinnePreset(){
           fi
           git commit -m "Add one-click Linneplatsen Nils Ericson detour preset"
           git push
+
+# trigger 2
