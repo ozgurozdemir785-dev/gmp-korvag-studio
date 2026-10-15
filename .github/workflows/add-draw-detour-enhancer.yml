@@ -1,0 +1,52 @@
+name: Add draw detour enhancer
+
+on:
+  push:
+    paths:
+      - '.github/workflows/add-draw-detour-enhancer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+
+      - name: Load drawing enhancer
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          tag='<script src="/draw-detour-enhancer.js?v=draw-v1-20261015"></script>'
+          if tag not in s:
+              s=s.replace('</body>', tag+'\n</body>')
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit enhancer loader
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'Enable practical map drawing for detours'
+            git push
+          fi
+
+      - name: Deploy patched app to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: eb367029b1b6f6cac7f6524333e889b1
+          command: pages deploy . --project-name=gmp-korvag-studio --branch=main
