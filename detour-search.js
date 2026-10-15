@@ -36,8 +36,8 @@ function install(){
     </div>
     <datalist id="autoDetourStops"></datalist>
     <div class="autoDetourActions"><button id="autoDetourSearch" class="btn primary small">🚌 Hitta 5 bussvägar</button><button id="autoDetourSwap" class="btn small" title="Byt från/till">⇅</button></div>
-    <div class="autoDetourMode"><span class="ok">✓ Bussprofil</span><span>✓ Tur/Retur</span><span>✓ Enkelriktning</span><span>✓ Tillåtet spår</span></div>
-    <div class="autoDetourHint">Fungerar som navigation: systemet hittar rätt färdriktning och söker körbara bussalternativ. I Göteborg får förslagen använda <b>spår-/kollektivtrafikkorridor endast när kartdatan uttryckligen visar buss/PSV-access eller bussgata</b>. Ren spårväg utan bussbehörighet ska inte användas.</div>
+    <div class="autoDetourMode"><span class="ok">✓ Bussprofil</span><span>✓ Tur/Retur</span><span>✓ Enkelriktning</span><span>✓ Bred alternativsökning</span></div>
+    <div class="autoDetourHint">Systemet söker nu på <b>båda sidor om ordinarie linje</b> och provar bredare körbara korridorer, ungefär som när en annan busslinje redan visar att en annan väg genom staden är möjlig. Buss-/PSV-stråk prioriteras när kartdatan tillåter det.</div>
     <div id="autoDetourStatus" class="autoDetourStatus">Klar att söka.</div>
     <div id="autoDetourResults" class="autoDetourResults"></div>
     <div id="autoDetourBtns" class="autoDetourBtns hidden"><button id="autoDetourPreview" class="btn small">👁 Visa valt</button><button id="autoDetourApply" class="btn green small">✓ Använd valt</button></div>`;
@@ -47,7 +47,6 @@ function install(){
   $id('autoDetourPreview').onclick=()=>previewSuggestion(selected,false);
   $id('autoDetourApply').onclick=()=>previewSuggestion(selected,true);
   refreshStopList();
-  setInterval(refreshStopList,4000);
 }
 
 function refreshStopList(){
@@ -87,13 +86,13 @@ function chooseDirection(from,to){
 }
 function interp(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}
 function routeSimilarity(route,ordinarySlice){
-  if(!route?.length||!ordinarySlice?.length)return 0;const sample=route.length>80?route.filter((_,i)=>i%Math.ceil(route.length/70)===0):route;let near=0;for(const p of sample){const n=nearestPointOnRoute(ordinarySlice,p);if(n&&n.offset<28)near++}return sample.length?near/sample.length:0;
+  if(!route?.length||!ordinarySlice?.length)return 0;const sample=route.length>90?route.filter((_,i)=>i%Math.ceil(route.length/80)===0):route;let near=0;for(const p of sample){const n=nearestPointOnRoute(ordinarySlice,p);if(n&&n.offset<30)near++}return sample.length?near/sample.length:0;
 }
-function routeSignature(route){if(!route?.length)return'';const ids=[0,.2,.4,.6,.8,1].map(t=>route[Math.min(route.length-1,Math.round((route.length-1)*t))]).map(c=>c.map(x=>x.toFixed(3)).join(',')).join('|');return ids}
+function routeSignature(route){if(!route?.length)return'';const ids=[0,.17,.34,.51,.68,.85,1].map(t=>route[Math.min(route.length-1,Math.round((route.length-1)*t))]).map(c=>c.map(x=>x.toFixed(3)).join(',')).join('|');return ids}
 function bboxFor(points,pad=.006){const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);return[Math.min(...ys)-pad,Math.min(...xs)-pad,Math.max(...ys)+pad,Math.max(...xs)+pad]}
 function explicitBusAccess(tags={}){const vals=[tags.bus,tags.psv,tags.motor_vehicle,tags.access].map(x=>String(x||'').toLowerCase());return vals.some(x=>['yes','designated','permissive','destination'].includes(x))||['busway','bus_guideway'].includes(String(tags.highway||''))||!!tags['bus:lanes']||!!tags['psv:lanes']||!!tags.busway}
 async function fetchTransitCorridors(start,end,base){
-  const pts=[start,end,...(base?.length?base.filter((_,i)=>i%Math.max(1,Math.ceil(base.length/25))===0):[])],bbox=bboxFor(pts,.009);
+  const pts=[start,end,...(base?.length?base.filter((_,i)=>i%Math.max(1,Math.ceil(base.length/25))===0):[])],bbox=bboxFor(pts,.012);
   if(bbox[2]-bbox[0]>.12||bbox[3]-bbox[1]>.18)return[];
   try{
     const r=await fetch('/osm-busways',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({bbox})});if(!r.ok)return[];const j=await r.json(),out=[];
@@ -112,41 +111,83 @@ function corridorRouteShare(route,corridors){
   return{tram:sample.length?tram/sample.length:0,bus:sample.length?bus/sample.length:0};
 }
 function corridorGuideSets(start,end,corridors){
-  const scored=[];for(const c of corridors){const m=corridorMidpoint(c);if(!m)continue;const straight=nearestPointOnRoute([start,end],m),toStart=hav(start,m),toEnd=hav(m,end);if(!straight||straight.offset>1100||toStart<35||toEnd<35)continue;const score=straight.offset+(c.isTram?-90:0)+(c.isBusway?-60:0);scored.push({c,m,score})}
-  scored.sort((a,b)=>a.score-b.score);const picks=scored.slice(0,6),sets=[];
+  const scored=[];for(const c of corridors){const m=corridorMidpoint(c);if(!m)continue;const straight=nearestPointOnRoute([start,end],m),toStart=hav(start,m),toEnd=hav(m,end);if(!straight||straight.offset>1500||toStart<35||toEnd<35)continue;const score=straight.offset+(c.isTram?-90:0)+(c.isBusway?-60:0);scored.push({c,m,score})}
+  scored.sort((a,b)=>a.score-b.score);const picks=scored.slice(0,8),sets=[];
   for(const x of picks)sets.push([start,x.m,end]);
-  if(picks.length>=2){for(let i=0;i<Math.min(3,picks.length-1);i++){const a=picks[i],b=picks[i+1];if(hav(a.m,b.m)>80)sets.push([start,a.m,b.m,end])}}
+  if(picks.length>=2){for(let i=0;i<Math.min(5,picks.length-1);i++){const a=picks[i],b=picks[i+1];if(hav(a.m,b.m)>80)sets.push([start,a.m,b.m,end])}}
   return sets;
 }
+function guideKey(g){return g.map(p=>p.map(x=>(+x).toFixed(4)).join(',')).join('|')}
+function lateralPoint(p,sideBearing,meters){return offsetMeters(p,(sideBearing+(meters<0?180:0))%360,Math.abs(meters))}
 
 async function buildCandidates(anchor){
-  const {d,a,b}=anchor,start=a.coord,end=b.coord,base=routeSliceByDistance(d.ordinary,a.distance,b.distance,8),baseLen=routeLength(base),straightBearing=bearing(start,end);
-  const mid=interp(start,end,.5),p35=interp(start,end,.35),p65=interp(start,end,.65),corridors=await fetchTransitCorridors(start,end,base);
-  const corridorGuides=corridorGuideSets(start,end,corridors);
-  const guides=[
-    [start,end],
-    ...corridorGuides,
-    [start,offsetMeters(mid,straightBearing,180),end],
-    [start,offsetMeters(mid,straightBearing,-180),end],
-    [start,offsetMeters(p35,straightBearing,320),offsetMeters(p65,straightBearing,320),end],
-    [start,offsetMeters(p35,straightBearing,-320),offsetMeters(p65,straightBearing,-320),end],
-    [start,offsetMeters(mid,straightBearing,450),end],
-    [start,offsetMeters(mid,straightBearing,-450),end],
-    [start,offsetMeters(p35,straightBearing,550),offsetMeters(p65,straightBearing,-250),end],
-    [start,offsetMeters(p35,straightBearing,-550),offsetMeters(p65,straightBearing,250),end]
-  ];
-  const out=[],seen=new Set();
-  for(let i=0;i<guides.length&&out.length<5;i++){
-    try{
-      const res=await valhallaBusRoute(guides[i]);if(!res?.coords?.length)continue;
-      const sig=routeSignature(res.coords);if(seen.has(sig))continue;seen.add(sig);
-      const len=routeLength(res.coords),similarity=routeSimilarity(res.coords,base),share=corridorRouteShare(res.coords,corridors);
-      if(out.length&&similarity>.93&&Math.abs(len-baseLen)<120&&share.bus<.08)continue;
-      out.push({coords:res.coords,events:res.events||[],roadMeta:res.roadMeta||[],len,baseLen,similarity,source:res.source||'BUSS-routing',corridorShare:share.bus,tramShare:share.tram});
-    }catch(e){console.warn('Alternativ '+(i+1)+' misslyckades',e)}
+  const {d,a,b}=anchor,start=a.coord,end=b.coord,base=routeSliceByDistance(d.ordinary,a.distance,b.distance,10),baseLen=routeLength(base),straightBearing=bearing(start,end);
+  const sideBearing=(straightBearing+90)%360;
+  const p28=interp(start,end,.28),p42=interp(start,end,.42),mid=interp(start,end,.5),p58=interp(start,end,.58),p72=interp(start,end,.72);
+  const corridors=await fetchTransitCorridors(start,end,base),corridorGuides=corridorGuideSets(start,end,corridors);
+
+  // Viktigt: via-punkterna ska ligga TVÄRS över färdriktningen. Tidigare låg de längs samma axel,
+  // vilket gjorde att nästan alla fem förslag blev samma väg.
+  const guides=[[start,end],...corridorGuides];
+  for(const m of [180,320,500,700,950,1250]){
+    guides.push([start,lateralPoint(mid,sideBearing,m),end]);
+    guides.push([start,lateralPoint(mid,sideBearing,-m),end]);
   }
-  if(!out.length){const res=await smartBusRoute([start,end]);const share=corridorRouteShare(res.coords,corridors);out.push({coords:res.coords,events:res.events||[],roadMeta:res.roadMeta||[],len:routeLength(res.coords),baseLen,similarity:routeSimilarity(res.coords,base),source:res.source||'Bussrouting',corridorShare:share.bus,tramShare:share.tram})}
-  out.sort((x,y)=>{const sx=x.len-(x.tramShare||0)*260-(x.corridorShare||0)*140,sy=y.len-(y.tramShare||0)*260-(y.corridorShare||0)*140;return sx-sy});
+  for(const m of [260,480,760,1050]){
+    guides.push([start,lateralPoint(p28,sideBearing,m),lateralPoint(p72,sideBearing,m),end]);
+    guides.push([start,lateralPoint(p28,sideBearing,-m),lateralPoint(p72,sideBearing,-m),end]);
+  }
+  guides.push([start,lateralPoint(p28,sideBearing,650),lateralPoint(p58,sideBearing,300),end]);
+  guides.push([start,lateralPoint(p28,sideBearing,-650),lateralPoint(p58,sideBearing,-300),end]);
+  guides.push([start,lateralPoint(p42,sideBearing,850),lateralPoint(p72,sideBearing,-250),end]);
+  guides.push([start,lateralPoint(p42,sideBearing,-850),lateralPoint(p72,sideBearing,250),end]);
+
+  const uniqueGuides=[],guideSeen=new Set();
+  for(const g of guides){const k=guideKey(g);if(!guideSeen.has(k)){guideSeen.add(k);uniqueGuides.push(g)}}
+
+  const all=[],seenRoutes=new Set();
+  const runGuide=async(g,i)=>{
+    try{return await valhallaBusRoute(g)}
+    catch(e){
+      console.warn('Bussalternativ '+(i+1)+' föll tillbaka',e);
+      try{return await smartBusRoute(g)}catch{return null}
+    }
+  };
+
+  // Kör fyra routingförsök åt gången. Det ger bredare sökning utan att låsa gränssnittet.
+  for(let i=0;i<uniqueGuides.length;i+=4){
+    const batch=uniqueGuides.slice(i,i+4);
+    const res=await Promise.all(batch.map((g,j)=>runGuide(g,i+j)));
+    for(const r of res){
+      if(!r?.coords?.length)continue;
+      const sig=routeSignature(r.coords);if(seenRoutes.has(sig))continue;seenRoutes.add(sig);
+      const len=routeLength(r.coords);if(!Number.isFinite(len)||len<80||len>Math.max(baseLen*2.7,baseLen+9000))continue;
+      const similarity=routeSimilarity(r.coords,base),share=corridorRouteShare(r.coords,corridors);
+      all.push({coords:r.coords,events:r.events||[],roadMeta:r.roadMeta||[],len,baseLen,similarity,source:r.source||'BUSS-routing',corridorShare:share.bus,tramShare:share.tram});
+    }
+    if(all.length>=11)break;
+  }
+
+  if(!all.length){
+    const res=await smartBusRoute([start,end]);const share=corridorRouteShare(res.coords,corridors);
+    all.push({coords:res.coords,events:res.events||[],roadMeta:res.roadMeta||[],len:routeLength(res.coords),baseLen,similarity:routeSimilarity(res.coords,base),source:res.source||'Bussrouting',corridorShare:share.bus,tramShare:share.tram});
+  }
+
+  all.sort((x,y)=>{
+    const sx=x.len+(x.similarity>.90?1200:0)+(x.similarity>.75?350:0)-(x.corridorShare||0)*250-(x.tramShare||0)*180;
+    const sy=y.len+(y.similarity>.90?1200:0)+(y.similarity>.75?350:0)-(y.corridorShare||0)*250-(y.tramShare||0)*180;
+    return sx-sy;
+  });
+
+  // Välj verkligen olika vägar i stället för fem nästan identiska geometrier.
+  const out=[];
+  for(const cand of all){
+    if(!out.length){out.push(cand);continue}
+    const tooSimilar=out.some(x=>routeSimilarity(cand.coords,x.coords)>.88&&routeSimilarity(x.coords,cand.coords)>.88);
+    if(!tooSimilar)out.push(cand);
+    if(out.length>=5)break;
+  }
+  for(const cand of all){if(out.length>=5)break;if(!out.includes(cand))out.push(cand)}
   while(out.length<5&&out.length){const src=out[out.length%Math.max(1,out.length)];out.push({...src,duplicate:true})}
   return out.slice(0,5);
 }
@@ -155,13 +196,13 @@ async function findAlternatives(){
   if(searchBusy)return;const fromQ=$id('autoDetourFrom')?.value.trim(),toQ=$id('autoDetourTo')?.value.trim(),status=$id('autoDetourStatus');
   if(!fromQ||!toQ){status.className='autoDetourStatus err';status.textContent='Fyll i både Från och Till.';return}
   if(!state?.dirs?.tur?.ordinary?.length&&!state?.dirs?.retur?.ordinary?.length){status.className='autoDetourStatus err';status.textContent='Hämta först Västtrafiklinjen som ska läggas om.';return}
-  searchBusy=true;suggestions=[];$id('autoDetourResults').innerHTML='';$id('autoDetourBtns').classList.add('hidden');status.className='autoDetourStatus busy';status.textContent='Söker platser, riktning och tillåtna kollektivtrafikkorridorer…';
+  searchBusy=true;suggestions=[];$id('autoDetourResults').innerHTML='';$id('autoDetourBtns').classList.add('hidden');status.className='autoDetourStatus busy';status.textContent='Söker bredare bussvägar på båda sidor om ordinarie linje…';
   try{
     const [from,to]=await Promise.all([geocodeOne(fromQ),geocodeOne(toQ)]);const anchor=chooseDirection(from.coord,to.coord);if(!anchor)throw new Error('Från/Till ligger inte i rätt ordning på den hämtade linjen. Kontrollera platserna eller byt dem med ⇅.');
     if(anchor.a.offset>650||anchor.b.offset>650)throw new Error('En av platserna ligger för långt från den hämtade linjen. Sök en hållplats eller gata närmare linjen.');
     if(state.direction!==anchor.direction)setDirection(anchor.direction);
-    status.textContent='Rätt riktning hittad: '+(anchor.direction==='retur'?'Retur':'Tur')+'. Söker bussväg, bussgata och tillåtna spårkorridorer…';
-    const routes=await buildCandidates(anchor);suggestions=routes.map((r,i)=>({...r,index:i,anchor,from,to}));selected=0;renderResults();status.className='autoDetourStatus';status.textContent=`${from.name} → ${to.name} · ${anchor.direction==='retur'?'Retur':'Tur'} · välj ett förslag.`;
+    status.textContent='Rätt riktning hittad: '+(anchor.direction==='retur'?'Retur':'Tur')+'. Söker direkta vägar, sidokorridorer och buss-/PSV-stråk…';
+    const routes=await buildCandidates(anchor);suggestions=routes.map((r,i)=>({...r,index:i,anchor,from,to}));selected=0;renderResults();status.className='autoDetourStatus';status.textContent=`${from.name} → ${to.name} · ${anchor.direction==='retur'?'Retur':'Tur'} · ${suggestions.length} körbara förslag.`;
   }catch(e){status.className='autoDetourStatus err';status.textContent=e.message||String(e)}finally{searchBusy=false}
 }
 function renderResults(){
@@ -172,7 +213,7 @@ function previewSuggestion(i,apply){
   const s=suggestions[i];if(!s)return;const {anchor}=s;if(state.direction!==anchor.direction)setDirection(anchor.direction);const d=dir();
   d.cutDistance=null;d.affected=[idxAt(d.ordinary,anchor.a.distance),idxAt(d.ordinary,anchor.b.distance)];d._affDone=true;d.detour=s.coords;d.roadLockedRoute=[];d.navEvents=s.events||[];d.roadMeta=s.roadMeta||d.roadMeta||[];d.routeSource=`Auto-omläggning · Förslag ${i+1}${s.tramShare>=.03?' · tillåtet buss/spår':''}`;d.freeActive=false;state.driveRoute=null;
   fitCoords(buildSimRoute(d),70);renderAll();
-  if(apply){enrichDirRoadMeta(d,buildSimRoute(d)).catch(()=>{});toast(`Förslag ${i+1} används som omläggning (${anchor.direction==='retur'?'Retur':'Tur'}). Spårområde används bara där bussaccess finns i kartdatan.`,5000)}else toast(`Förhandsvisar Förslag ${i+1}. Tryck “Använd valt” när du är nöjd.`,3500);
+  if(apply){enrichDirRoadMeta(d,buildSimRoute(d)).catch(()=>{});toast(`Förslag ${i+1} används som omläggning (${anchor.direction==='retur'?'Retur':'Tur'}).`,4500)}else toast(`Förhandsvisar Förslag ${i+1}. Tryck “Använd valt” när du är nöjd.`,3500);
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(install,0));else setTimeout(install,0);
