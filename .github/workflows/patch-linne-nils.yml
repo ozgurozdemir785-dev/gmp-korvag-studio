@@ -1,0 +1,119 @@
+name: Patch Linne Nils preset
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-linne-nils.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add one-click Linneplatsen to Nils Ericson detour
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('smart-auto-detour.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('/* SMART_AUTO_DETOUR_V2_BLOCKED_SEGMENT */','/* SMART_AUTO_DETOUR_V3_LINNE_NILS_PRESET */')
+
+          marker='async function runSmartAuto(){'
+          if 'async function runLinneNilsPreset(){' not in s:
+              insert=r'''
+async function geocodeAny(names){
+  let last=null;
+  for(const q of names){try{return await geocodeVia(q)}catch(e){last=e}}
+  throw last||new Error('Platsen kunde inte hittas.');
+}
+function anchorForNamedPlaces(startCoord,endCoord){
+  let best=null;
+  for(const name of ['tur','retur']){
+    const d=state.dirs?.[name],route=d?.ordinary;if(!route?.length||route.length<2)continue;
+    const a=nearestPointOnRoute(route,startCoord),b=nearestPointOnRoute(route,endCoord);
+    if(!a||!b||a.offset>1400||b.offset>1400||b.distance<=a.distance+120)continue;
+    const score=a.offset+b.offset+(name===state.direction?-30:0);
+    if(!best||score<best.score)best={name,d,a,b,score};
+  }
+  if(!best)return null;
+  if(state.direction!==best.name)setDirection(best.name);
+  const d=state.dirs[best.name];
+  const ia=nearestIdx(d.ordinary,best.a.coord).index,ib=nearestIdx(d.ordinary,best.b.coord).index;
+  d.cutDistance=null;d.affected=[ia,ib];d._affDone=true;d.detour=[];d.roadLockedRoute=[];state.driveRoute=null;
+  return selectedAnchor();
+}
+async function runLinneNilsPreset(){
+  if(smartBusy)return;
+  const status=$id('autoDetourStatus');smartBusy=true;
+  try{
+    if(status){status.className='autoDetourStatus busy';status.textContent='Hittar Linnéplatsen, Övre Husargatan och Nils Ericsonplatsen…'}
+    const [start,via,jarn,end]=await Promise.all([
+      geocodeAny(['Linnéplatsen','Linnéplatsen hållplats']),
+      geocodeAny(['Övre Husargatan','Övre Husargatan 15']),
+      geocodeAny(['Järntorget','Järntorget hållplats']),
+      geocodeAny(['Nils Ericson Terminalen','Nils Ericsonplatsen','Nils Ericson Terminal'])
+    ]);
+    const anchor=anchorForNamedPlaces(start.coord,end.coord);
+    if(!anchor)throw new Error('Den hämtade linjen går inte i rätt riktning mellan Linnéplatsen och Nils Ericsonplatsen. Kontrollera Tur/Retur eller hämta rätt linje.');
+    const withdrawn=markBlockedAndWithdraw(anchor);
+    if(status)status.textContent=`Ordinarie sträcka spärrad · ${withdrawn} hållplats${withdrawn===1?'':'er'} indragen${withdrawn===1?'':'a'} · bygger ny väg via Övre Husargatan…`;
+    let res=await routeCandidate([anchor.start,via.coord,jarn.coord,anchor.end]);
+    if(!res?.coords?.length||res.coords.length<2)throw new Error('Kunde inte bygga körvägen via Övre Husargatan.');
+    let share=forbiddenShare(res.coords,anchor);
+    if(share>.38){
+      res=await routeCandidate([anchor.start,via.coord,anchor.end]);
+      share=forbiddenShare(res.coords,anchor);
+    }
+    if(!res?.coords?.length||share>.38)throw new Error('Den föreslagna vägen går fortfarande in på den indragna sträckan och aktiveras därför inte.');
+    const d=anchor.d;
+    d.cutDistance=null;d.affected=[anchor.ia,anchor.ib];d._affDone=true;d.detour=res.coords;d.roadLockedRoute=[];d.navEvents=res.events||[];d.roadMeta=res.roadMeta||d.roadMeta||[];d.routeSource='Linnéplatsen → Nils Ericson via Övre Husargatan';d.freeActive=false;state.driveRoute=null;
+    try{renderAll();fitCoords([anchor.start,...res.coords,anchor.end],80)}catch{}
+    const activateBtn=$id('activateDetourBtn');if(activateBtn&&!activateBtn.disabled)activateBtn.click();else setTimeout(()=>{const b=$id('activateDetourBtn');if(b&&!b.disabled)b.click()},120);
+    const viaInput=$id('autoDetourVia');if(viaInput)viaInput.value='Övre Husargatan';
+    if(status){status.className='autoDetourStatus';status.innerHTML=`✓ <b>LINNÉPLATSEN → NILS ERICSON AKTIV</b><br>Via Övre Husargatan · ${withdrawn} hållplats${withdrawn===1?'':'er'} indragen${withdrawn===1?'':'a'} · bussen använder den nya körvägen.`}
+    try{toast('Klart: Linnéplatsen → Nils Ericson via Övre Husargatan är aktiv körväg.',5200)}catch{}
+  }catch(e){
+    if(status){status.className='autoDetourStatus err';status.textContent=e?.message||String(e)}
+    try{renderAll();renderStopManager()}catch{}
+  }finally{smartBusy=false}
+}
+function installLinnePreset(){
+  if($id('linneNilsPresetBtn'))return;
+  const affect=$id('affectBtn');if(!affect?.parentNode)return;
+  const b=document.createElement('button');b.id='linneNilsPresetBtn';b.className='btn green wide';b.style.cssText='width:100%;grid-column:1/-1;margin:0 0 7px;min-height:40px;font-weight:900';
+  b.textContent='🚌 LINNÉPLATSEN → NILS ERICSON via ÖVRE HUSARGATAN';b.onclick=runLinneNilsPreset;
+  const card=$id('simpleDetourCard');if(card?.nextSibling)card.parentNode.insertBefore(b,card.nextSibling);else affect.parentNode.insertBefore(b,affect);
+}
+
+'''
+              s=s.replace(marker,insert+marker,1)
+
+          old="const box=$id('autoDetourBox');if(!box)return false;installSimpleCard();"
+          new="const box=$id('autoDetourBox');if(!box)return false;installSimpleCard();installLinnePreset();"
+          if old in s:
+              s=s.replace(old,new,1)
+          elif 'installLinnePreset();' not in s:
+              raise SystemExit('Could not find installSmartAuto insertion point')
+
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "ozgurozdemir785-dev"
+          git config user.email "ozgurozdemir785@gmail.com"
+          git add smart-auto-detour.js
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "Add one-click Linneplatsen Nils Ericson detour preset"
+          git push
