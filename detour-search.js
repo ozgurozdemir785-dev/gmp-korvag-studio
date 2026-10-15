@@ -218,5 +218,10 @@ function installAutoHooks(){
   }catch(e){console.warn(e)}
 }
 
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{setTimeout(install,0);setTimeout(installAutoHooks,50)});else{setTimeout(install,0);setTimeout(installAutoHooks,50)}
+function startDetourInstaller(){
+  let n=0;
+  const run=()=>{n++;try{install();installAutoHooks()}catch(e){console.warn(e)}if($id('autoDetourBox')||n>500)clearInterval(t)};
+  const t=setInterval(run,120);run();
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startDetourInstaller);else startDetourInstaller();
 })();

@@ -398,10 +398,10 @@ function installLinnePreset(){
   else affect.parentNode.insertBefore(b,affect);
 }
 function installSmartAuto(){
-  const box=$id('autoDetourBox');
-  if(!box)return false;
   installSimpleCard();
   installLinnePreset();
+  const box=$id('autoDetourBox');
+  if(!box)return !!$id('linneNilsPresetBtn');
   if(!$id('autoDetourVia')){
     const fields=box.querySelector('.autoDetourFields');
     if(fields){
@@ -467,7 +467,7 @@ document.addEventListener('click',e=>{
 });
 
 let tries=0;
-const timer=setInterval(()=>{tries++;if(installSmartAuto()||tries>25)clearInterval(timer)},120);
+const timer=setInterval(()=>{tries++;if(installSmartAuto()||tries>500)clearInterval(timer)},120);
 if(document.readyState!=='loading')setTimeout(installSmartAuto,20);
 else document.addEventListener('DOMContentLoaded',()=>setTimeout(installSmartAuto,20));
 

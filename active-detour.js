@@ -139,7 +139,7 @@ document.addEventListener('click',e=>{
 
 function loadSmartAuto(){
   if(document.getElementById('smartAutoDetourScript'))return;
-  const s=document.createElement('script');s.id='smartAutoDetourScript';s.src='/smart-auto-detour.js?v=blocked-v2-20261015';document.head.appendChild(s);
+  const s=document.createElement('script');s.id='smartAutoDetourScript';s.src='/smart-auto-detour.js?v=linne-v3-20261015-1152';document.head.appendChild(s);
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{setTimeout(installActivateButton,180);setTimeout(loadSmartAuto,260)});
