@@ -1,0 +1,55 @@
+name: Export full project ZIP
+
+on:
+  push:
+    paths:
+      - '.github/workflows/export-full-zip.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare full package
+        shell: bash
+        run: |
+          rm -rf export
+          mkdir -p export/GMP-Korvag-Studio-V8.10
+          rsync -a --exclude='.git' --exclude='export' ./ export/GMP-Korvag-Studio-V8.10/
+          cat > export/GMP-Korvag-Studio-V8.10/API-INSTALLATION.txt <<'EOF'
+          GMP Körväg Studio V8.10 - API / installation
+
+          Denna ZIP innehåller hela appen från GitHub, inklusive:
+          - index.html
+          - _worker.js
+          - Trafikverket API-integration /api/traffic-events
+          - GTFS/Västtrafik-logik och proxykod
+          - routing, geocoding, OSM/busway-proxyer
+          - detour-search.js
+          - active-detour.js
+          - smart-auto-detour.js
+          - bussmodellerna bus12.glb, bus15.glb, bus18.glb, bus21.glb
+          - Cloudflare _headers och deployfiler
+
+          VIKTIGT OM API-NYCKLAR:
+          Hemliga API-nycklar ligger av säkerhetsskäl INTE i ZIP-filen eller i källkoden.
+          Trafikverkets nyckel ska sättas som Cloudflare Pages/Workers secret/environment variable:
+          TRAFIKVERKET_API_KEY
+
+          Om du deployar ZIP-filen till samma Cloudflare-projekt där hemligheten redan finns behöver du inte lägga in nyckeln i filerna.
+          Lägg aldrig in riktiga API-nycklar direkt i index.html eller _worker.js.
+          EOF
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GMP-Korvag-Studio-V8.10-FULL
+          path: export/GMP-Korvag-Studio-V8.10
+          if-no-files-found: error
+          compression-level: 6
