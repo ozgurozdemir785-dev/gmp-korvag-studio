@@ -58,8 +58,13 @@ async function trafikverketQuery(key, queryXml) {
   return json;
 }
 
+async function digestKey(value) {
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -71,124 +76,100 @@ export default {
       headers.delete('cf-ray');
       headers.delete('cf-visitor');
       for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
-      const init = {
-        method: request.method,
-        headers,
-        redirect: 'follow'
-      };
+      const init = { method: request.method, headers, redirect: 'follow' };
       if (!['GET', 'HEAD'].includes(request.method)) init.body = request.body;
       const response = await fetch(target, init);
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers
-      });
+      return new Response(response.body, {status:response.status,statusText:response.statusText,headers:response.headers});
+    };
+
+    const cachedGet = async (target, extraHeaders={}, ttl=3600) => {
+      const key=new Request(target.toString(),{method:'GET'}), cache=caches.default;
+      const hit=await cache.match(key); if(hit) return hit;
+      const headers=new Headers(extraHeaders); const upstream=await fetch(target,{headers,redirect:'follow'});
+      const outHeaders=new Headers(upstream.headers); outHeaders.set('Cache-Control',`public, max-age=${ttl}, stale-while-revalidate=86400`);
+      const out=new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:outHeaders});
+      if(upstream.ok) ctx.waitUntil(cache.put(key,out.clone()));
+      return out;
+    };
+
+    const cachedPost = async (target, body, extraHeaders={}, ttl=3600) => {
+      const hash=await digestKey(target+'|'+body), cacheUrl=new URL(request.url);
+      cacheUrl.pathname='/__gmp_cache/'+hash; cacheUrl.search='';
+      const key=new Request(cacheUrl.toString(),{method:'GET'}), cache=caches.default;
+      const hit=await cache.match(key); if(hit) return hit;
+      const headers=new Headers(extraHeaders); const upstream=await fetch(target,{method:'POST',headers,body,redirect:'follow'});
+      const outHeaders=new Headers(upstream.headers); outHeaders.set('Cache-Control',`public, max-age=${ttl}, stale-while-revalidate=86400`);
+      const out=new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers:outHeaders});
+      if(upstream.ok) ctx.waitUntil(cache.put(key,out.clone()));
+      return out;
     };
 
     if (path.startsWith('/tiles/street/')) {
       const rest = path.slice('/tiles/street/'.length);
-      return proxy(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${rest}`);
+      return cachedGet(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${rest}`,{},86400);
     }
 
     if (path.startsWith('/tiles/sat/')) {
       const rest = path.slice('/tiles/sat/'.length);
-      return proxy(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${rest}`);
+      return cachedGet(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${rest}`,{},86400);
     }
 
     if (path === '/geo/search') {
       const target = new URL('https://nominatim.openstreetmap.org/search');
       url.searchParams.forEach((v, k) => target.searchParams.append(k, v));
-      return proxy(target.toString(), {
-        'Accept': 'application/json',
-        'User-Agent': 'GMP-Korvag-Studio/8.0'
-      });
+      return cachedGet(target.toString(), {'Accept':'application/json','User-Agent':'GMP-Korvag-Studio/8.8'}, 900);
     }
-
 
     if (path === '/routing-bus') {
       const target = new URL('https://valhalla1.openstreetmap.de/route');
       url.searchParams.forEach((v, k) => target.searchParams.append(k, v));
-      return proxy(target.toString(), {
-        'Accept': 'application/json',
-        'X-Client-Id': 'gmp-korvag-studio.pages.dev'
-      });
+      return cachedGet(target.toString(), {'Accept':'application/json','X-Client-Id':'gmp-korvag-studio.pages.dev'}, 3600);
     }
 
     if (path === '/trace-attrs') {
-      const target = new URL('https://valhalla1.openstreetmap.de/trace_attributes');
-      return proxy(target.toString(), {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'X-Client-Id': 'gmp-korvag-studio.pages.dev'
-      });
+      const target = 'https://valhalla1.openstreetmap.de/trace_attributes';
+      const body=await request.clone().text();
+      return cachedPost(target,body,{'Accept':'application/json','Content-Type':'application/json','X-Client-Id':'gmp-korvag-studio.pages.dev'},3600);
     }
 
     if (path === '/osm-busways' && request.method === 'POST') {
       let bbox = null;
-      try {
-        const body = await request.json();
-        if (Array.isArray(body?.bbox) && body.bbox.length === 4) {
-          const a = body.bbox.map(Number);
-          if (a.every(Number.isFinite)) bbox = a;
-        }
-      } catch {}
+      try { const body = await request.json(); if (Array.isArray(body?.bbox) && body.bbox.length === 4) { const a = body.bbox.map(Number); if (a.every(Number.isFinite)) bbox = a; } } catch {}
       if (!bbox) return new Response(JSON.stringify({elements: []}), {headers: {'content-type':'application/json'}});
       const [south, west, north, east] = bbox;
-      if (north <= south || east <= west || north - south > .12 || east - west > .18) {
-        return new Response(JSON.stringify({elements: []}), {status:400, headers:{'content-type':'application/json'}});
-      }
+      if (north <= south || east <= west || north - south > .12 || east - west > .18) return new Response(JSON.stringify({elements: []}), {status:400, headers:{'content-type':'application/json'}});
       const b = `${south},${west},${north},${east}`;
       const q = `[out:json][timeout:18];(way[highway=busway](${b});way[highway=bus_guideway](${b});way[bus=designated](${b});way[psv=designated](${b});way["bus:lanes"](${b});way["psv:lanes"](${b});way[busway](${b}););out tags geom;`;
       const endpoints = ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
       for (const endpoint of endpoints) {
-        try {
-          const r = await fetch(endpoint, {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Accept':'application/json','User-Agent':'GMP-Korvag-Studio/8.0'},body:'data='+encodeURIComponent(q)});
-          if (r.ok) return new Response(r.body,{status:r.status,headers:{'content-type':'application/json','cache-control':'public, max-age=21600'}});
-        } catch {}
+        try { const r = await cachedPost(endpoint,'data='+encodeURIComponent(q),{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Accept':'application/json','User-Agent':'GMP-Korvag-Studio/8.8'},21600); if (r.ok) return r; } catch {}
       }
       return new Response(JSON.stringify({elements: []}), {status:200, headers:{'content-type':'application/json'}});
     }
 
     if (path === '/osm-road-safety' && request.method === 'POST') {
       let bbox = null;
-      try {
-        const body = await request.json();
-        if (Array.isArray(body?.bbox) && body.bbox.length === 4) {
-          const a = body.bbox.map(Number);
-          if (a.every(Number.isFinite)) bbox = a;
-        }
-      } catch {}
+      try { const body = await request.json(); if (Array.isArray(body?.bbox) && body.bbox.length === 4) { const a = body.bbox.map(Number); if (a.every(Number.isFinite)) bbox = a; } } catch {}
       if (!bbox) return new Response(JSON.stringify({elements: []}), {headers: {'content-type':'application/json'}});
       const [south, west, north, east] = bbox;
-      if (north <= south || east <= west || north - south > .12 || east - west > .18) {
-        return new Response(JSON.stringify({elements: []}), {status:400, headers:{'content-type':'application/json'}});
-      }
+      if (north <= south || east <= west || north - south > .12 || east - west > .18) return new Response(JSON.stringify({elements: []}), {status:400, headers:{'content-type':'application/json'}});
       const b = `${south},${west},${north},${east}`;
       const q = `[out:json][timeout:18];(node[highway=crossing](${b});node[highway=traffic_signals](${b});node[highway=stop](${b});node[highway=give_way](${b});node[traffic_calming](${b}););out tags;`;
       const endpoints = ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
       for (const endpoint of endpoints) {
-        try {
-          const r = await fetch(endpoint, {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Accept':'application/json','User-Agent':'GMP-Korvag-Studio/8.0'},body:'data='+encodeURIComponent(q)});
-          if (r.ok) return new Response(r.body,{status:r.status,headers:{'content-type':'application/json','cache-control':'public, max-age=21600'}});
-        } catch {}
+        try { const r = await cachedPost(endpoint,'data='+encodeURIComponent(q),{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Accept':'application/json','User-Agent':'GMP-Korvag-Studio/8.8'},21600); if (r.ok) return r; } catch {}
       }
       return new Response(JSON.stringify({elements: []}), {status:200, headers:{'content-type':'application/json'}});
     }
 
     if (path === '/osm-way-tags' && request.method === 'POST') {
       let ids = [];
-      try {
-        const body = await request.json();
-        ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Number.isFinite).slice(0, 120) : [];
-      } catch {}
+      try { const body = await request.json(); ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Number.isFinite).slice(0, 120) : []; } catch {}
       if (!ids.length) return new Response(JSON.stringify({elements: []}), {headers: {'content-type':'application/json'}});
       const q = `[out:json][timeout:15];way(id:${ids.join(',')});out tags;`;
       const endpoints = ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
       for (const endpoint of endpoints) {
-        try {
-          const r = await fetch(endpoint, {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Accept':'application/json','User-Agent':'GMP-Korvag-Studio/8.0'},body:'data='+encodeURIComponent(q)});
-          if (r.ok) return new Response(r.body,{status:r.status,headers:{'content-type':'application/json','cache-control':'public, max-age=86400'}});
-        } catch {}
+        try { const r = await cachedPost(endpoint,'data='+encodeURIComponent(q),{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Accept':'application/json','User-Agent':'GMP-Korvag-Studio/8.8'},86400); if (r.ok) return r; } catch {}
       }
       return new Response(JSON.stringify({elements: []}), {status:200, headers:{'content-type':'application/json'}});
     }
@@ -198,88 +179,62 @@ export default {
       const bbox = bboxRaw.split(',').map(Number);
       const validBbox = bbox.length === 4 && bbox.every(Number.isFinite) && bbox[2]>bbox[0] && bbox[3]>bbox[1];
       const key = env.TRAFIKVERKET_API_KEY;
-      if (!key) {
-        return new Response(JSON.stringify({ok:true,configured:false,live:false,bbox:validBbox?bbox:null,events:[],source:'trafikverket',error:'TRAFIKVERKET_API_KEY saknas'}),{status:200,headers:{'content-type':'application/json','cache-control':'no-store'}});
-      }
-      if (!validBbox) {
-        return new Response(JSON.stringify({ok:false,configured:true,live:false,events:[],source:'trafikverket',error:'Ogiltig bbox'}),{status:400,headers:{'content-type':'application/json','cache-control':'no-store'}});
-      }
+      if (!key) return new Response(JSON.stringify({ok:true,configured:false,live:false,bbox:validBbox?bbox:null,events:[],source:'trafikverket',error:'TRAFIKVERKET_API_KEY saknas'}),{status:200,headers:{'content-type':'application/json','cache-control':'no-store'}});
+      if (!validBbox) return new Response(JSON.stringify({ok:false,configured:true,live:false,events:[],source:'trafikverket',error:'Ogiltig bbox'}),{status:400,headers:{'content-type':'application/json','cache-control':'no-store'}});
       const [south,west,north,east]=bbox;
-      // GMP används i Göteborg/Mölndal/Partille. CountyNo 14 håller frågan liten och snabb,
-      // sedan filtrerar vi exakt mot den aktiva ruttens bbox i Worker + webbläsare.
-      const situationQuery=`<QUERY objecttype="Situation" schemaversion="1.5" orderby="ModifiedTime desc" limit="250">
-        <FILTER><ELEMENTMATCH><AND><EQ name="Deviation.CountyNo" value="14" /><OR><EXISTS name="Deviation.EndTime" value="false" /><GT name="Deviation.EndTime" value="$now" /></OR></AND></ELEMENTMATCH></FILTER>
-        <INCLUDE>Id</INCLUDE><INCLUDE>ModifiedTime</INCLUDE><INCLUDE>PublicationTime</INCLUDE>
-        <INCLUDE>Deviation.Id</INCLUDE><INCLUDE>Deviation.Header</INCLUDE><INCLUDE>Deviation.Message</INCLUDE>
-        <INCLUDE>Deviation.MessageType</INCLUDE><INCLUDE>Deviation.MessageTypeValue</INCLUDE>
-        <INCLUDE>Deviation.MessageCode</INCLUDE><INCLUDE>Deviation.MessageCodeValue</INCLUDE>
-        <INCLUDE>Deviation.SeverityCode</INCLUDE><INCLUDE>Deviation.SeverityText</INCLUDE>
-        <INCLUDE>Deviation.RoadNumber</INCLUDE><INCLUDE>Deviation.LocationDescriptor</INCLUDE>
-        <INCLUDE>Deviation.StartTime</INCLUDE><INCLUDE>Deviation.EndTime</INCLUDE><INCLUDE>Deviation.IconId</INCLUDE>
-        <INCLUDE>Deviation.TrafficRestrictionType</INCLUDE><INCLUDE>Deviation.TemporaryLimit</INCLUDE>
-        <INCLUDE>Deviation.Geometry.WGS84</INCLUDE>
-      </QUERY>`;
-      const flowQuery=`<QUERY objecttype="TrafficFlow" schemaversion="1.4" orderby="MeasurementTime desc" limit="500">
-        <FILTER><EQ name="CountyNo" value="14" /></FILTER>
-        <INCLUDE>SiteId</INCLUDE><INCLUDE>MeasurementTime</INCLUDE><INCLUDE>VehicleType</INCLUDE>
-        <INCLUDE>VehicleFlowRate</INCLUDE><INCLUDE>AverageVehicleSpeed</INCLUDE><INCLUDE>SpecificLane</INCLUDE>
-        <INCLUDE>MeasurementSide</INCLUDE><INCLUDE>Geometry.WGS84</INCLUDE>
-      </QUERY>`;
+      const situationQuery=`<QUERY objecttype="Situation" schemaversion="1.5" orderby="ModifiedTime desc" limit="250"><FILTER><ELEMENTMATCH><AND><EQ name="Deviation.CountyNo" value="14" /><OR><EXISTS name="Deviation.EndTime" value="false" /><GT name="Deviation.EndTime" value="$now" /></OR></AND></ELEMENTMATCH></FILTER><INCLUDE>Id</INCLUDE><INCLUDE>ModifiedTime</INCLUDE><INCLUDE>PublicationTime</INCLUDE><INCLUDE>Deviation.Id</INCLUDE><INCLUDE>Deviation.Header</INCLUDE><INCLUDE>Deviation.Message</INCLUDE><INCLUDE>Deviation.MessageType</INCLUDE><INCLUDE>Deviation.MessageTypeValue</INCLUDE><INCLUDE>Deviation.MessageCode</INCLUDE><INCLUDE>Deviation.MessageCodeValue</INCLUDE><INCLUDE>Deviation.SeverityCode</INCLUDE><INCLUDE>Deviation.SeverityText</INCLUDE><INCLUDE>Deviation.RoadNumber</INCLUDE><INCLUDE>Deviation.LocationDescriptor</INCLUDE><INCLUDE>Deviation.StartTime</INCLUDE><INCLUDE>Deviation.EndTime</INCLUDE><INCLUDE>Deviation.IconId</INCLUDE><INCLUDE>Deviation.TrafficRestrictionType</INCLUDE><INCLUDE>Deviation.TemporaryLimit</INCLUDE><INCLUDE>Deviation.Geometry.WGS84</INCLUDE></QUERY>`;
+      const flowQuery=`<QUERY objecttype="TrafficFlow" schemaversion="1.4" orderby="MeasurementTime desc" limit="500"><FILTER><EQ name="CountyNo" value="14" /></FILTER><INCLUDE>SiteId</INCLUDE><INCLUDE>MeasurementTime</INCLUDE><INCLUDE>VehicleType</INCLUDE><INCLUDE>VehicleFlowRate</INCLUDE><INCLUDE>AverageVehicleSpeed</INCLUDE><INCLUDE>SpecificLane</INCLUDE><INCLUDE>MeasurementSide</INCLUDE><INCLUDE>Geometry.WGS84</INCLUDE></QUERY>`;
       const events=[]; const errors=[]; const seen=new Set(); let situationCount=0, flowCount=0;
       try {
-        const j=await trafikverketQuery(key,situationQuery);
-        const situations=trafikResult(j,'Situation'); situationCount=situations.length;
-        for(const s of situations){
-          for(const d of (Array.isArray(s?.Deviation)?s.Deviation:[])){
-            const coord=geometryCoord(d.Geometry);
-            if(!coord || !insideBbox(coord,bbox,.004)) continue;
-            const id=String(d.Id||s.Id||`${coord[0]},${coord[1]}`); if(seen.has(id))continue; seen.add(id);
-            const type=classifySituation(d), road=d.RoadNumber?`Väg ${d.RoadNumber}`:'', loc=d.LocationDescriptor||'';
-            const title=d.Header||d.MessageCode||d.MessageType||'Trafikhändelse';
-            const detail=[road,loc,d.Message,d.TrafficRestrictionType,d.TemporaryLimit,d.SeverityText].filter(Boolean).join(' · ');
-            events.push({id:`sit:${id}`,type,coord,title,text:detail,severity:+d.SeverityCode||0,start:d.StartTime||null,end:d.EndTime||null,source:'Trafikverket Situation'});
-          }
+        const j=await trafikverketQuery(key,situationQuery), situations=trafikResult(j,'Situation'); situationCount=situations.length;
+        for(const s of situations) for(const d of (Array.isArray(s?.Deviation)?s.Deviation:[])) {
+          const coord=geometryCoord(d.Geometry); if(!coord || !insideBbox(coord,bbox,.004)) continue;
+          const id=String(d.Id||s.Id||`${coord[0]},${coord[1]}`); if(seen.has(id))continue; seen.add(id);
+          const type=classifySituation(d), road=d.RoadNumber?`Väg ${d.RoadNumber}`:'', loc=d.LocationDescriptor||'';
+          const title=d.Header||d.MessageCode||d.MessageType||'Trafikhändelse';
+          const detail=[road,loc,d.Message,d.TrafficRestrictionType,d.TemporaryLimit,d.SeverityText].filter(Boolean).join(' · ');
+          events.push({id:`sit:${id}`,type,coord,title,text:detail,severity:+d.SeverityCode||0,start:d.StartTime||null,end:d.EndTime||null,source:'Trafikverket Situation'});
         }
       } catch(e){ errors.push(String(e?.message||e)); }
-      // TrafikFlow är mätpunkter, inte incidenter. Visa bara tydligt långsam trafik så kartan inte fylls av gula punkter.
       try {
-        const j=await trafikverketQuery(key,flowQuery);
-        const flows=trafikResult(j,'TrafficFlow'); flowCount=flows.length;
-        const bySite=new Map();
-        for(const f of flows){
-          const coord=geometryCoord(f.Geometry); if(!coord || !insideBbox(coord,bbox,.002))continue;
-          const speed=+f.AverageVehicleSpeed, rate=+f.VehicleFlowRate;
-          if(!Number.isFinite(speed) || speed>28 || (Number.isFinite(rate)&&rate<80))continue;
-          const site=String(f.SiteId||`${coord[0]},${coord[1]}`); const prev=bySite.get(site);
-          if(prev && String(prev.MeasurementTime||'')>=String(f.MeasurementTime||''))continue;
-          bySite.set(site,{...f,coord});
-        }
-        for(const [site,f] of bySite){
-          const speed=Math.max(0,+f.AverageVehicleSpeed||0),rate=+f.VehicleFlowRate||0;
-          events.push({id:`flow:${site}`,type:'congestion',coord:f.coord,title:speed<12?'Mycket långsam trafik':'Långsam trafik',text:`${Math.round(speed)} km/h${rate?` · ca ${Math.round(rate)} fordon/h`:''}`,severity:speed<12?4:2,start:f.MeasurementTime||null,end:null,source:'Trafikverket TrafficFlow'});
-        }
+        const j=await trafikverketQuery(key,flowQuery), flows=trafikResult(j,'TrafficFlow'); flowCount=flows.length; const bySite=new Map();
+        for(const f of flows){ const coord=geometryCoord(f.Geometry); if(!coord || !insideBbox(coord,bbox,.002))continue; const speed=+f.AverageVehicleSpeed, rate=+f.VehicleFlowRate; if(!Number.isFinite(speed) || speed>28 || (Number.isFinite(rate)&&rate<80))continue; const site=String(f.SiteId||`${coord[0]},${coord[1]}`), prev=bySite.get(site); if(prev && String(prev.MeasurementTime||'')>=String(f.MeasurementTime||''))continue; bySite.set(site,{...f,coord}); }
+        for(const [site,f] of bySite){ const speed=Math.max(0,+f.AverageVehicleSpeed||0),rate=+f.VehicleFlowRate||0; events.push({id:`flow:${site}`,type:'congestion',coord:f.coord,title:speed<12?'Mycket långsam trafik':'Långsam trafik',text:`${Math.round(speed)} km/h${rate?` · ca ${Math.round(rate)} fordon/h`:''}`,severity:speed<12?4:2,start:f.MeasurementTime||null,end:null,source:'Trafikverket TrafficFlow'}); }
       } catch(e){ errors.push(String(e?.message||e)); }
-      events.sort((a,b)=>(b.severity||0)-(a.severity||0));
-      const live=errors.length<2; // Situation räcker för live-läge även om TrafficFlow saknas tillfälligt.
+      events.sort((a,b)=>(b.severity||0)-(a.severity||0)); const live=errors.length<2;
       return new Response(JSON.stringify({ok:live||events.length>0,configured:true,live,bbox:[south,west,north,east],events,source:'trafikverket',stats:{situations:situationCount,trafficFlow:flowCount,returned:events.length},errors}),{status:200,headers:{'content-type':'application/json','cache-control':'no-store'}});
     }
 
     if (path.startsWith('/routing/')) {
-      const rest = path.slice('/routing/'.length);
-      const target = new URL(`https://router.project-osrm.org/${rest}`);
+      const rest = path.slice('/routing/'.length), target = new URL(`https://router.project-osrm.org/${rest}`);
       url.searchParams.forEach((v, k) => target.searchParams.append(k, v));
-      return proxy(target.toString(), { 'Accept': 'application/json' });
+      return cachedGet(target.toString(), {'Accept':'application/json'}, 3600);
     }
 
     if (path === '/gtfs/vt.zip') {
       const target = new URL('https://opendata.samtrafiken.se/gtfs/vt/vt.zip');
       url.searchParams.forEach((v, k) => target.searchParams.append(k, v));
-      return proxy(target.toString(), {
-        'Accept': 'application/zip',
-        'Accept-Encoding': 'gzip, deflate'
-      });
+      return proxy(target.toString(), {'Accept':'application/zip','Accept-Encoding':'gzip, deflate'});
     }
 
-    return env.ASSETS.fetch(request);
+    const asset=await env.ASSETS.fetch(request);
+    if(request.method==='GET' && asset.ok && (path==='/' || path==='/index.html')){
+      let html=await asset.text();
+      html=html.replace('<title>GMP Körväg Studio V8.7 3D SATELLIT FIX</title>','<title>GMP Körväg Studio V8.8 SPEED</title>');
+      html=html.replace('z=state.zoom,margin=2,','z=state.zoom,margin=1,');
+      html=html.replace("function renderAll(){applyVisibility();renderMap();updateSummary();renderStopManager();renderDetourWorkflowState();renderTrafficStudioStatus();renderTrafficStudioPlayback();scheduleTrafficRefresh()}","function renderAll(){applyVisibility();renderMap();const later=()=>{updateSummary();renderStopManager();renderDetourWorkflowState();renderTrafficStudioStatus();renderTrafficStudioPlayback();scheduleTrafficRefresh()};if('requestIdleCallback' in window)requestIdleCallback(later,{timeout:220});else setTimeout(later,0)}");
+      html=html.replace("async function osrmRoute(points){if(points.length<2)throw new Error('Minst två punkter krävs');const coords=points.map(c=>c[0].toFixed(6)+','+c[1].toFixed(6)).join(';');const url='/routing/route/v1/driving/'+coords+'?overview=full&geometries=geojson&steps=false&continue_straight=false';const r=await fetch(url);if(!r.ok)throw new Error('Ruttjänsten svarade '+r.status);const j=await r.json();if(!j.routes?.[0]?.geometry?.coordinates)throw new Error('Ingen körbar väg hittades');const out=j.routes[0].geometry.coordinates;let roadMeta=[];try{roadMeta=await traceRoadAttributes(out)}catch{}if(hasFerry(roadMeta))throw new Error('Reservrutten innehåller färja/vattenpassage');return{coords:out,events:[],roadMeta,source:'Reservrouting (bilprofil)'}}","async function osrmRoute(points){if(points.length<2)throw new Error('Minst två punkter krävs');const coords=points.map(c=>c[0].toFixed(6)+','+c[1].toFixed(6)).join(';');const url='/routing/route/v1/driving/'+coords+'?overview=full&geometries=geojson&steps=false&continue_straight=false';const r=await fetch(url);if(!r.ok)throw new Error('Ruttjänsten svarade '+r.status);const j=await r.json();if(!j.routes?.[0]?.geometry?.coordinates)throw new Error('Ingen körbar väg hittades');return{coords:j.routes[0].geometry.coordinates,events:[],roadMeta:[],source:'Reservrouting (bilprofil)'}}");
+      html=html.replace("let roadMeta=[];try{roadMeta=await traceRoadAttributes(coords)}catch(e){console.warn(e)}if(hasFerry(roadMeta))throw new Error('Rutten innehåller färja/vattenpassage och godkänns inte som busskörväg');return{coords,events,roadMeta,source:'BUSS-routing (OSM/Valhalla)'}","return{coords,events,roadMeta:[],source:'BUSS-routing (OSM/Valhalla)'}");
+      html=html.replace("const meta=await traceRoadAttributes(raw),coords=meta.matchedRoute?.length>1?meta.matchedRoute:raw;if(hasFerry(meta))return null;\n  return{coords,events:[],roadMeta:meta,source:'Västtrafik linjespår + bussvägnät (GTFS/OSM)'};","return{coords:raw,events:[],roadMeta:[],source:'Västtrafik linjespår (GTFS)'};");
+      html=html.replace("d.routeSource=res.source||'';d.freeActive=false;state.driveRoute=null;fitCoords(d.route);toast((res.source||'Körvägen')+' är klar. Bussgator används när kartdatan tillåter bussaccess.',4200)","d.routeSource=res.source||'';d.freeActive=false;state.driveRoute=null;fitCoords(d.route);if(!d.roadMeta.length)setTimeout(()=>enrichDirRoadMeta(d,d.route),0);toast((res.source||'Körvägen')+' är klar. Vägdata kompletteras i bakgrunden.',3000)");
+      html=html.replace("setTimeout(()=>scheduleTrafficRefresh(true),1600)","setTimeout(()=>scheduleTrafficRefresh(true),4500)");
+      html=html.replace("toast('V8.6 MAP-ONLY REC – API, live trafik och kartinspelning klara.',5200)","toast('V8.8 SPEED – snabbare start och bussrouting aktiv.',2800)");
+      const headers=new Headers(asset.headers);headers.set('content-type','text/html; charset=utf-8');headers.set('cache-control','no-cache');
+      return new Response(html,{status:asset.status,statusText:asset.statusText,headers});
+    }
+    if(asset.ok && /\.(glb|png|jpg|jpeg|webp|svg|woff2?)$/i.test(path)){
+      const headers=new Headers(asset.headers);headers.set('cache-control','public, max-age=604800, immutable');return new Response(asset.body,{status:asset.status,statusText:asset.statusText,headers});
+    }
+    return asset;
   }
 };
