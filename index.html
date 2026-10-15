@@ -115,6 +115,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 .searchBar select,.searchBar input{height:40px!important}.searchBar{grid-template-columns:105px 108px 1fr 40px!important}
 @media(max-width:900px){.brand div:last-child{display:none}.topbar{height:auto!important;min-height:54px!important}.timeline{width:calc(100% - 16px)!important;bottom:56px!important}.bottomControls{max-width:calc(100% - 12px)!important;overflow-x:auto!important}.segmented button:nth-child(5),.segmented button:nth-child(6){display:none}.mapMini #trafficStudioBtn{display:none}}
 </style>
+<!-- 3D_BUS_BRIDGE_VISIBILITY_V1 -->
 </head>
 <body>
 <div class="app">
@@ -1598,15 +1599,30 @@ function setGoogleCameraMode(mode){if(!google3dMap||!googleViewMode){toast('Öpp
 function geoOffset(c,headingDeg,forwardMeters=0,rightMeters=0){const h=headingDeg*Math.PI/180,dx=Math.sin(h)*forwardMeters+Math.sin(h+Math.PI/2)*rightMeters,dy=Math.cos(h)*forwardMeters+Math.cos(h+Math.PI/2)*rightMeters,latR=c[1]*Math.PI/180;return[c[0]+dx/(111320*Math.max(.2,Math.cos(latR))),c[1]+dy/110540]}
 function clear3dRouteLines(){for(const l of google3dRouteLines||[]){try{l.remove()}catch{}}google3dRouteLines=[];google3dRouteLine=null}
 function infrastructureKindAtDistance(distance,route,d=dir()){
-  const arr=d?.roadMeta||[];if(!arr.length)return'ground';const base=buildSimRoute(d),bt=routeLength(base),rt=routeLength(route||[]),scale=bt>0?rt/bt:1;let bridge=false,tunnel=false;
+  const arr=d?.roadMeta||[];if(!arr.length)return'ground';
+  const base=buildSimRoute(d),bt=routeLength(base),rt=routeLength(route||[]),scale=bt>0?rt/bt:1;
+  const exact=[],near=[];
   for(const m of arr){
-    const a=m.start*scale-18,b=m.end*scale+18;if(distance<a||distance>b)continue;
-    const t=m.tags||{},bridgeTag=String(t.bridge||'').toLowerCase(),tunnelTag=String(t.tunnel||'').toLowerCase(),layer=Number(t.layer||m.layer||0),txt=[m.name,m.roadName,m.roadClass,m.highway,t.bridge,t.tunnel,t.man_made].filter(Boolean).join(' ').toLowerCase();
-    const isTunnel=!!m.tunnel||(tunnelTag&&tunnelTag!=='no')||String(t.covered||'').toLowerCase()==='yes'||layer<0||/tunnel|underpass|underfart/.test(txt);
-    const isBridge=!!m.bridge||(bridgeTag&&bridgeTag!=='no')||String(t.man_made||'').toLowerCase()==='bridge'||layer>0||/viaduct|viadukt|bridge|bro/.test(txt);
-    if(isTunnel)tunnel=true;else if(isBridge)bridge=true;
+    const a=Number(m.start||0)*scale,b=Number(m.end||0)*scale;
+    const lo=Math.min(a,b),hi=Math.max(a,b);
+    if(distance>=lo-5&&distance<=hi+5){
+      const t=m.tags||{},bridgeTag=String(t.bridge||'').toLowerCase(),tunnelTag=String(t.tunnel||'').toLowerCase(),layer=Number(t.layer??m.layer??0),txt=[m.name,m.roadName,m.roadClass,m.highway,t.bridge,t.tunnel,t.man_made].filter(Boolean).join(' ').toLowerCase();
+      const isTunnel=!!m.tunnel||(tunnelTag&&tunnelTag!=='no')||String(t.covered||'').toLowerCase()==='yes'||/tunnel|underpass|underfart/.test(txt);
+      const isBridge=!!m.bridge||(bridgeTag&&bridgeTag!=='no')||String(t.man_made||'').toLowerCase()==='bridge'||/viaduct|viadukt|bridge|bro\b/.test(txt)||(layer>0&&!isTunnel);
+      const item={isTunnel,isBridge,inside:distance>=lo&&distance<=hi,gap:distance<lo?lo-distance:distance>hi?distance-hi:0,span:Math.max(1,hi-lo)};
+      (item.inside?exact:near).push(item);
+    }
   }
-  return tunnel?'tunnel':bridge?'bridge':'ground';
+  const pick=list=>{
+    if(!list.length)return'ground';
+    // På en viadukt kan metadata för en korsande väg överlappa. Den faktiska brodelen ska då vinna
+    // så bussen inte göms som om den vore i tunnel.
+    if(list.some(x=>x.isBridge&&!x.isTunnel))return'bridge';
+    if(list.some(x=>x.isTunnel))return'tunnel';
+    return'ground';
+  };
+  const exactKind=pick(exact);if(exactKind!=='ground')return exactKind;
+  return pick(near);
 }
 function infrastructureSegments(route,d=dir()){
   if(!route?.length||route.length<2)return[];const dense=resampleRoute(route,4),total=routeLength(route),out=[];let cur=null;
@@ -1614,11 +1630,11 @@ function infrastructureSegments(route,d=dir()){
 }
 function infrastructureKindForSample(sample=null,route=null){const rr=route||state.driveRoute||buildDriveRoute(dir());return infrastructureKindAtDistance(sample?.distance||0,rr,dir())}
 function googleAltitudeMode(sample=null,route=null){if(!state.rules.groundLevel)return'RELATIVE_TO_MESH';const k=infrastructureKindForSample(sample,route);return(k==='bridge'||k==='tunnel')?'RELATIVE_TO_MESH':'RELATIVE_TO_GROUND'}
-function googleVehicleAltitude(sample=null,route=null){const k=infrastructureKindForSample(sample,route);return k==='bridge'?.78:k==='tunnel'?.22:.12}
+function googleVehicleAltitude(sample=null,route=null){const k=infrastructureKindForSample(sample,route);return k==='bridge'?1.45:k==='tunnel'?.18:.12}
 function busModelUrl(){const file='bus'+$('busType').value+'.glb';try{return new URL(file,location.href).href}catch{return file}}
 function busModelScale(){return {'12':.92,'15':.95,'18':.98,'21':1}[$('busType').value]||1}
 async function ensure3dBus(lib,sample){const v=vis();if(!google3dMap||googleCameraMode==='driver'||!v.bus3d){if(google3dBusModel){try{google3dBusModel.remove()}catch{}google3dBusModel=null}if(google3dFallbackMarker){try{google3dFallbackMarker.remove()}catch{}google3dFallbackMarker=null}return;}const src=busModelUrl();if(google3dBusModel&&google3dBusModel.dataset?.src===src)return;try{if(google3dBusModel)google3dBusModel.remove();if(google3dFallbackMarker)google3dFallbackMarker.remove();const route=state.driveRoute?.length>1?state.driveRoute:buildDriveRoute(dir()),pose=vehiclePose(route,sample)||{center:sample.coord,heading:sample.bearing};google3dBusModel=new lib.Model3DElement({src,position:{lat:pose.center[1],lng:pose.center[0],altitude:googleVehicleAltitude(sample,route)},orientation:{heading:(pose.heading+180)%360,tilt:0,roll:0},scale:busModelScale(),altitudeMode:googleAltitudeMode(sample,route)});google3dBusModel.dataset.src=src;google3dMap.append(google3dBusModel);google3dFallbackMarker=null;if(!google3dSignalLeft){google3dSignalLeft=new lib.Marker3DElement({position:{lat:pose.center[1],lng:pose.center[0],altitude:1.2},altitudeMode:googleAltitudeMode(sample,route),label:'●',sizePreserved:true,drawsWhenOccluded:false,collisionBehavior:'REQUIRED',zIndex:1001});google3dMap.append(google3dSignalLeft)}if(!google3dSignalRight){google3dSignalRight=new lib.Marker3DElement({position:{lat:pose.center[1],lng:pose.center[0],altitude:1.2},altitudeMode:googleAltitudeMode(sample,route),label:'●',sizePreserved:true,drawsWhenOccluded:false,collisionBehavior:'REQUIRED',zIndex:1001});google3dMap.append(google3dSignalRight)}}catch(e){console.warn('3D-bussmodell',e);try{google3dFallbackMarker=new lib.Marker3DElement({position:{lat:sample.coord[1],lng:sample.coord[0],altitude:2},altitudeMode:googleAltitudeMode(sample,route),label:'🚌 BUSS',sizePreserved:true,drawsWhenOccluded:false,collisionBehavior:'REQUIRED',zIndex:999});google3dMap.append(google3dFallbackMarker)}catch{}}}
-function ensure3dRoute(lib,route){const v=vis();if(!google3dMap||!route?.length||!v.route3d){clear3dRouteLines();return;}try{clear3dRouteLines();const segs=infrastructureSegments(route,dir());for(const seg of segs){if(seg.kind==='tunnel')continue;const alt=seg.kind==='bridge'?1.05:.36,path=seg.coords.map(c=>({lat:c[1],lng:c[0],altitude:alt})),line=new lib.Polyline3DElement({path,strokeColor:'#5b34f2',strokeWidth:7,outerColor:'#ffffff',outerWidth:.42,altitudeMode:seg.mode,drawsOccludedSegments:false,zIndex:50});google3dMap.append(line);google3dRouteLines.push(line)}google3dRouteLine=google3dRouteLines[0]||null}catch(e){console.warn('3D-ruttlinje',e)}}
+function ensure3dRoute(lib,route){const v=vis();if(!google3dMap||!route?.length||!v.route3d){clear3dRouteLines();return;}try{clear3dRouteLines();const segs=infrastructureSegments(route,dir());for(const seg of segs){if(seg.kind==='tunnel')continue;const alt=seg.kind==='bridge'?1.28:.36,path=seg.coords.map(c=>({lat:c[1],lng:c[0],altitude:alt})),line=new lib.Polyline3DElement({path,strokeColor:'#5b34f2',strokeWidth:7,outerColor:'#ffffff',outerWidth:.42,altitudeMode:seg.mode,drawsOccludedSegments:false,zIndex:50});google3dMap.append(line);google3dRouteLines.push(line)}google3dRouteLine=google3dRouteLines[0]||null}catch(e){console.warn('3D-ruttlinje',e)}}
 function playHorn(){try{const AC=window.AudioContext||window.webkitAudioContext,ctx=new AC(),now=ctx.currentTime,g=ctx.createGain(),o1=ctx.createOscillator(),o2=ctx.createOscillator();o1.type='sawtooth';o2.type='square';o1.frequency.setValueAtTime(330,now);o2.frequency.setValueAtTime(415,now);g.gain.setValueAtTime(.0001,now);g.gain.exponentialRampToValueAtTime(.12,now+.025);g.gain.setValueAtTime(.12,now+.28);g.gain.exponentialRampToValueAtTime(.0001,now+.48);o1.connect(g);o2.connect(g);g.connect(ctx.destination);o1.start(now);o2.start(now);o1.stop(now+.5);o2.stop(now+.5);setTimeout(()=>ctx.close().catch(()=>{}),700)}catch(e){toast('Webbläsaren kunde inte spela upp tutan.')}}
 function geoLerp(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}
 async function openGoogleView(mode){
