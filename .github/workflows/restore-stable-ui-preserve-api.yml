@@ -1,0 +1,37 @@
+name: Restore stable UI preserve API
+on:
+  push:
+    paths:
+      - '.github/workflows/restore-stable-ui-preserve-api.yml'
+permissions:
+  contents: write
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore stable app UI and add isolated detour button loader
+        shell: bash
+        run: |
+          git show ece854fe593f9229bfc36187b6d65ac5016528ab:index.html > index.html
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          tag='<script src="/linne-preset-button.js?v=preserve-api-20261015"></script>'
+          if tag not in s:
+              s=s.replace('</body>',tag+'</body>')
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit restored UI
+        shell: bash
+        run: |
+          git config user.name 'ozgurozdemir785-dev'
+          git config user.email 'ozgurozdemir785@gmail.com'
+          git add index.html
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Restore stable full UI and preserve API settings'
+          git push
