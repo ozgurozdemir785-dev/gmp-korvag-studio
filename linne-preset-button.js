@@ -14,6 +14,9 @@ let busy=false;
 const app=()=>window.GMP_APP||null;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9åäöéü\s-]/gi,' ').replace(/\s+/g,' ').trim();
+function isCentralAlias(v){const n=norm(v);return n.includes('nordstan')||n.includes('nils ericson')||n.includes('nils erikson')}
+function isCentralStopName(v){const n=norm(v);return n.includes('nordstan')||n.includes('nils ericson')||n.includes('nils erikson')}
+function mapAliasQuery(q){return isCentralAlias(q)?'Nils Ericson Terminalen':q}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 function status(text,kind=''){
@@ -31,28 +34,30 @@ function allLoadedStops(){
   if(!A?.state?.dirs)return out;
   for(const name of ['tur','retur']){
     const d=A.state.dirs[name],line=d?.lineInfo?.line||$('lineInput')?.value||'';
-    for(const st of (d?.stops||[])){
+    const stops=d?.stops||[];
+    for(let stopIndex=0;stopIndex<stops.length;stopIndex++){
+      const st=stops[stopIndex];
       if(!st?.coord||!st?.name)continue;
-      out.push({kind:'stop',name:st.name,detail:`Västtrafik${line?' · linje '+line:''} · ${name==='tur'?'Tur':'Retur'}`,coord:[+st.coord[0],+st.coord[1]],official:true,direction:name});
+      out.push({kind:'stop',name:st.name,detail:`Västtrafik${line?' · linje '+line:''} · ${name==='tur'?'Tur':'Retur'}${isCentralStopName(st.name)?' · Nordstan / Nils Ericsonplatsen':''}`,coord:[+st.coord[0],+st.coord[1]],official:true,direction:name,stopId:String(st.id||st.code||''),stopIndex});
     }
   }
   return out;
 }
 function localMatches(q){
   const nq=norm(q);if(!nq)return[];
-  const toks=nq.split(' ').filter(Boolean),seen=new Set(),out=[];
+  const toks=nq.split(' ').filter(Boolean),central=isCentralAlias(nq),seen=new Set(),out=[];
   for(const x of allLoadedStops()){
-    const n=norm(x.name);if(!toks.every(t=>n.includes(t)))continue;
-    const key=n+'_'+x.coord.map(v=>v.toFixed(5)).join('_');if(seen.has(key))continue;seen.add(key);
-    const score=n===nq?120:n.startsWith(nq)?95:70;
+    const n=norm(x.name),ok=central?isCentralStopName(n):toks.every(t=>n.includes(t));if(!ok)continue;
+    const key=n+'_'+x.direction+'_'+String(x.stopIndex)+'_'+x.coord.map(v=>v.toFixed(5)).join('_');if(seen.has(key))continue;seen.add(key);
+    const score=(central?160:n===nq?120:n.startsWith(nq)?95:70)+(x.official?10:0);
     out.push({...x,score});
   }
-  return out.sort((a,b)=>b.score-a.score).slice(0,8);
+  return out.sort((a,b)=>b.score-a.score).slice(0,10);
 }
 async function mapMatches(q){
   if(!q?.trim())return[];
   try{
-    const u='/geo/search?format=json&addressdetails=1&limit=8&countrycodes=se&q='+encodeURIComponent(q.trim()+', Göteborg');
+    const mapQ=mapAliasQuery(q);const u='/geo/search?format=json&addressdetails=1&limit=8&countrycodes=se&q='+encodeURIComponent(mapQ.trim()+', Göteborg');
     const r=await fetch(u,{headers:{Accept:'application/json'},cache:'no-store'});if(!r.ok)return[];
     const j=await r.json();
     return (j||[]).filter(x=>Number.isFinite(+x.lon)&&Number.isFinite(+x.lat)).map(x=>({kind:/bus_stop|platform|public_transport|station/i.test((x.class||'')+' '+(x.type||''))?'stop':'place',name:(x.display_name||q).split(',')[0],detail:x.display_name||q,coord:[+x.lon,+x.lat],official:false,score:30}));
@@ -102,12 +107,55 @@ async function resolveText(q){
 async function resolveViaText(q){if(!q)return;const x=await resolveText(q);viaPoints.push(x);$('smartVia').value='';$('smartViaSuggestions')?.classList.add('hidden');renderViaChips();status('Via tillagd: '+x.name)}
 async function fieldPlace(id){const p=picked[id];if(p)return p;const q=$(id)?.value.trim();if(!q)throw new Error(id==='smartFrom'?'Skriv var omläggningen börjar.':'Skriv var bussen ska tillbaka till ordinarie linje.');const x=await resolveText(q);picked[id]=x;$(id).value=x.name;return x}
 function nearestIdx(route,p,A){let bi=0,bd=Infinity;for(let i=0;i<(route||[]).length;i++){const d=A.hav(route[i],p);if(d<bd){bd=d;bi=i}}return bi}
-function bestDirection(startCoord,endCoord){
+function stopIndexForPlace(place,d,A){
+  if(!place?.official||!d?.stops?.length)return-1;
+  const pid=String(place.stopId||'');
+  if(pid){const exact=d.stops.findIndex(st=>String(st?.id||st?.code||'')===pid);if(exact>=0)return exact}
+  const pn=norm(place.name),central=isCentralStopName(pn);let best=-1,bestGap=Infinity;
+  for(let i=0;i<d.stops.length;i++){
+    const st=d.stops[i];if(!st?.coord)continue;const sn=norm(st.name),same=central?isCentralStopName(sn):sn===pn;if(!same)continue;
+    const gap=A.hav(st.coord,place.coord);if(gap<bestGap){bestGap=gap;best=i}
+  }
+  return best;
+}
+function stopAnchorMap(d,A){
+  const route=d?.ordinary||[],stops=d?.stops||[];if(route.length<2||!stops.length)return[];
+  const sig=route.length+'|'+stops.length+'|'+route[0]?.join(',')+'|'+route.at(-1)?.join(',');
+  if(d._smartPlaceStopAnchorCache?.sig===sig)return d._smartPlaceStopAnchorCache.anchors;
+  const cum=new Float64Array(route.length);for(let i=1;i<route.length;i++)cum[i]=cum[i-1]+A.hav(route[i-1],route[i]);
+  const K=18,cands=stops.map(st=>{
+    if(!st?.coord)return[{i:0,gap:99999}];const a=[];
+    for(let i=0;i<route.length;i++){
+      const gap=A.hav(route[i],st.coord);
+      if(a.length<K){a.push({i,gap});a.sort((x,y)=>x.gap-y.gap||x.i-y.i)}
+      else if(gap<a[a.length-1].gap){a[a.length-1]={i,gap};a.sort((x,y)=>x.gap-y.gap||x.i-y.i)}
+    }
+    return a.sort((x,y)=>x.i-y.i);
+  });
+  const dp=[];dp[0]=cands[0].map(c=>({cost:c.gap+c.i*1e-7,prev:-1}));
+  for(let si=1;si<cands.length;si++){
+    dp[si]=cands[si].map(c=>{let best=null;
+      for(let pi=0;pi<cands[si-1].length;pi++){const pc=cands[si-1][pi],pd=dp[si-1][pi];if(!pd||pc.i>c.i)continue;const cost=pd.cost+c.gap+(pc.i===c.i?12:0);if(!best||cost<best.cost)best={cost,prev:pi}}
+      if(best)return best;
+      let pi=0;for(let j=1;j<dp[si-1].length;j++)if(dp[si-1][j].cost<dp[si-1][pi].cost)pi=j;
+      return{cost:dp[si-1][pi].cost+c.gap+500,prev:pi};
+    });
+  }
+  let ci=0,last=dp.length-1;for(let j=1;j<dp[last].length;j++)if(dp[last][j].cost<dp[last][ci].cost)ci=j;
+  const chosen=new Array(stops.length);for(let si=last;si>=0;si--){chosen[si]=cands[si][ci];ci=dp[si][ci]?.prev??0;if(ci<0)ci=0}
+  const anchors=chosen.map((c,si)=>{const lo=Math.max(0,c.i-4),hi=Math.min(route.length-1,c.i+4),local=route.slice(lo,hi+1),n=A.nearestPointOnRoute(local,stops[si]?.coord);if(!n)return{coord:route[c.i],distance:cum[c.i],offset:c.gap,index:c.i};return{coord:n.coord,distance:cum[lo]+n.distance,offset:n.offset,index:lo+(n.index||0)}});
+  d._smartPlaceStopAnchorCache={sig,anchors};return anchors;
+}
+function anchorForPlace(place,d,A){
+  const si=stopIndexForPlace(place,d,A);if(si>=0){const a=stopAnchorMap(d,A)[si];if(a&&a.offset<300)return{...a,official:true,stopIndex:si}}
+  const n=A.nearestPointOnRoute(d.ordinary,place.coord);return n?{...n,official:false}:null;
+}
+function bestDirection(startPlace,endPlace){
   const A=app();let best=null;if(!A?.state?.dirs)return null;
   for(const name of ['tur','retur']){
     const d=A.state.dirs[name],route=d?.ordinary;if(!route?.length||route.length<2)continue;
-    const a=A.nearestPointOnRoute(route,startCoord),b=A.nearestPointOnRoute(route,endCoord);if(!a||!b||b.distance<=a.distance+25)continue;
-    const score=a.offset+b.offset+(name===A.state.direction?-25:0);
+    const a=anchorForPlace(startPlace,d,A),b=anchorForPlace(endPlace,d,A);if(!a||!b||b.distance<=a.distance+25)continue;
+    const score=a.offset+b.offset+(name===A.state.direction?-25:0)+(a.official?-55:0)+(b.official?-55:0);
     if(!best||score<best.score)best={name,d,a,b,score};
   }
   return best;
@@ -141,6 +189,18 @@ async function routeSegmented(points,A){
   }
   return{coords,events,roadMeta,source:'Smart omläggning'};
 }
+function lockRejoinBeforeLoop(coords,end,A){
+  const arr=(coords||[]).map(c=>[+c[0],+c[1]]);if(arr.length<3||!end)return{coords:arr,trimmed:false};
+  const start=Math.max(1,Math.floor(arr.length*.25));let firstNear=-1,movedAway=false,tail=0;
+  for(let i=start;i<arr.length;i++){
+    const gap=A.hav(arr[i],end);if(firstNear<0&&gap<=60)firstNear=i;else if(firstNear>=0&&gap>=125)movedAway=true;
+  }
+  if(firstNear>=0)for(let i=firstNear+1;i<arr.length;i++)tail+=A.hav(arr[i-1],arr[i]);
+  const trimmed=firstNear>=0&&(movedAway||tail>220);const out=trimmed?arr.slice(0,firstNear+1):arr;
+  if(!out.length)return{coords:arr,trimmed:false};
+  if(A.hav(out.at(-1),end)>2)out.push([+end[0],+end[1]]);else out[out.length-1]=[+end[0],+end[1]];
+  return{coords:out,trimmed};
+}
 async function buildDetour(){
   if(busy)return;busy=true;const A=app(),go=$('smartBuildBtn');if(go){go.disabled=true;go.textContent='⏳ Söker körväg…'}
   try{
@@ -148,7 +208,7 @@ async function buildDetour(){
     if(!['tur','retur'].some(k=>A.state.dirs?.[k]?.ordinary?.length>1))throw new Error('Hämta busslinjen först.');
     status('Känner av start och återanslutning på den laddade linjen…','busy');
     const [from,to]=await Promise.all([fieldPlace('smartFrom'),fieldPlace('smartTo')]);
-    const best=bestDirection(from.coord,to.coord);if(!best)throw new Error('Jag hittar inte dessa två platser i rätt ordning på den laddade linjen. Välj en Västtrafik-träff i listan.');
+    const best=bestDirection(from,to);if(!best)throw new Error('Jag hittar inte dessa två platser i rätt ordning på den laddade linjen. Välj en Västtrafik-träff i listan.');
     if(A.state.direction!==best.name)A.setDirection(best.name);
     const d=A.state.dirs[best.name],start=best.a.coord,end=best.b.coord;
     const ia=nearestIdx(d.ordinary,start,A),ib=nearestIdx(d.ordinary,end,A);
@@ -157,7 +217,7 @@ async function buildDetour(){
     let res;try{res=await routeVia(points,A)}catch(e){if(points.length>2)res=await routeSegmented(points,A);else throw e}
     if(!res?.coords?.length||res.coords.length<2)throw new Error('Ingen körbar bussväg hittades.');
     const withdrawn=withdrawStops(d,best.a.distance,best.b.distance,start,end,A);
-    d.cutDistance=null;d.affected=[ia,ib];d._affDone=true;d.detour=res.coords.map(c=>[+c[0],+c[1]]);d.roadLockedRoute=[];d.freeActive=false;d.navEvents=res.events||[];d.roadMeta=res.roadMeta||[];d.routeSource=`Smart omläggning · ${from.name} → ${to.name}`;
+    const rejoin=lockRejoinBeforeLoop(res.coords,end,A);d.cutDistance=null;d.affected=[ia,ib];d._affDone=true;d.detour=rejoin.coords;d.roadLockedRoute=[];d.freeActive=false;d.navEvents=rejoin.trimmed?[]:(res.events||[]);d.roadMeta=rejoin.trimmed?[]:(res.roadMeta||[]);d.routeSource=`Smart omläggning · ${from.name} → ${to.name}`;
     A.state.driveRoute=A.buildDriveRoute(d);A.state.busProgress=0;
     A.renderAll();A.renderStopManager?.();A.fitCoords?.(d.detour,90);
     status(`✓ OMLÄGGNING AKTIV · ${from.name} → ${to.name} · ${withdrawn} hållplats${withdrawn===1?'':'er'} indragen${withdrawn===1?'':'a'}.`,'ok');
