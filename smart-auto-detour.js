@@ -301,6 +301,8 @@ async function runLinneNilsPreset(){
   }
 }
 
+window.GMPLinnePreset=runLinneNilsPreset;
+
 async function runSmartAuto(){
   if(smartBusy)return;
   const status=$id('autoDetourStatus'),anchor=selectedAnchor();
