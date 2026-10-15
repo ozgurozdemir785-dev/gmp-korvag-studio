@@ -1,0 +1,2 @@
+Active detour route runtime enabled 2026-10-15.
+Selected or drawn detours become the active system route used by map and bus simulation.
