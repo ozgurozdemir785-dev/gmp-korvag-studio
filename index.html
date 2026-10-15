@@ -837,12 +837,29 @@ function applyBusTurnMargins(route){
   return route;
 }
 function routeSide(route,distance,target){const total=routeLength(route),a=pointAtDistance(route,Math.max(0,distance-7)),b=pointAtDistance(route,Math.min(total,distance+7)),c=pointAtDistance(route,distance);if(!a||!b||!c||!target)return 0;const lat=c[1]*Math.PI/180,kx=111320*Math.cos(lat),ky=110540,vx=(b[0]-a[0])*kx,vy=(b[1]-a[1])*ky,wx=(target[0]-c[0])*kx,wy=(target[1]-c[1])*ky;return Math.sign(vx*wy-vy*wx)||0}
+function applyServiceWindowToDriveRoute(route,d){
+  if(!route?.length||route.length<2||!d)return route||[];
+  const startId=String(d.serviceStartStopId||''),endId=String(d.serviceEndStopId||'');
+  if(!startId&&!endId)return route;
+  const stops=d.stops||[],key=(st,i)=>String(st?.id||st?.code||((st?.name||'Hållplats')+'#'+i));
+  let startD=0,endD=routeLength(route),hasStart=false,hasEnd=false;
+  for(let i=0;i<stops.length;i++){
+    const st=stops[i],k=key(st,i);if(!st?.coord)continue;
+    if(startId&&k===startId){const n=nearestPointOnRoute(route,st.coord);if(n&&n.offset<=70){startD=n.distance;hasStart=true}}
+    if(endId&&k===endId){const n=nearestPointOnRoute(route,st.coord);if(n&&n.offset<=70){endD=n.distance;hasEnd=true}}
+  }
+  if(startId&&!hasStart)return route;
+  if(endId&&!hasEnd)return route;
+  if(endD<=startD+8)return route;
+  const sliced=routeSliceByDistance(route,startD,endD,3);
+  return sliced?.length>1?sliced:route;
+}
 function buildDriveRoute(d){
   let base=buildSimRoute(d);if(!base?.length||base.length<2)return base||[];
-  // V7.1: när en ordinarie GTFS/OSM-linje har map-matchats kör bussen på den riktiga väggeometrin.
-  // Det gör framför allt rondeller/kurvor/bussgator mjuka utan att ändra den stabila kart- och zoommotorn.
+  // Ordinarie linje visas komplett. Trafikstart/trafikslut påverkar bara den aktiva busskörningen.
   const plainOrdinary=d.ordinary?.length>1&&!d.freeActive&&!Number.isFinite(d.cutDistance)&&!(d.affected&&d.detour?.length>1);
   if(plainOrdinary&&d.roadLockedRoute?.length>1)base=d.roadLockedRoute;
+  base=applyServiceWindowToDriveRoute(base,d);
   const prof=vehicleProfile(),step=Math.max(2.0,Math.min(2.8,prof.length/7.2));
   return resampleRoute(base,step);
 }
@@ -1663,5 +1680,6 @@ window.GMP_APP={state,dir,hav,nearestPointOnRoute,routeSliceByDistance,valhallaB
 init();
 })();
 </script>
-<script src="/linne-preset-button.js?v=smart-place-v4"></script><script src="/stop-detour-manager.js?v=20261015-1627"></script></body>
+<script src="/linne-preset-button.js?v=smart-place-v4"></script><script src="/stop-detour-manager.js?v=20261015-1627"></script><script src="/service-window-manager.js?v=20261015-1655"></script>
+</body>
 </html>
