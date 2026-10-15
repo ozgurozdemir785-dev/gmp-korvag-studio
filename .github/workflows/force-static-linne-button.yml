@@ -1,0 +1,72 @@
+name: Force static Linne preset button
+
+on:
+  push:
+    paths:
+      - '.github/workflows/force-static-linne-button.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Put Linné button directly in index.html
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          button = '''            <button id="linneNilsPresetBtn" class="btn green wide" style="min-height:44px;font-weight:900" onclick="if(window.GMPLinnePreset){window.GMPLinnePreset()}else{alert('Omläggningsmodulen laddas. Vänta en sekund och tryck igen.')}">🚌 LINNÉPLATSEN → NILS ERICSON via ÖVRE HUSARGATAN</button>\n'''
+          anchor = '            <button id="setOrdinaryBtn" class="btn wide">🔵 Sätt rutt som ordinarie linje</button>\n'
+          if 'id="linneNilsPresetBtn"' not in s:
+              if anchor not in s:
+                  raise SystemExit('setOrdinaryBtn anchor not found')
+              s = s.replace(anchor, anchor + button, 1)
+          else:
+              # Ensure the existing static button has a direct fallback click handler.
+              import re
+              s = re.sub(r'<button id="linneNilsPresetBtn"[^>]*>.*?</button>', button.strip(), s, count=1)
+
+          # Visible version marker so the user can immediately confirm the correct build is loaded.
+          s = s.replace('V8.6 MAP-ONLY REC', 'V8.11 OMLÄGGNING FIX')
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('smart-auto-detour.js')
+          s = p.read_text(encoding='utf-8')
+          marker = 'async function runSmartAuto(){'
+          export_line = 'window.GMPLinnePreset=runLinneNilsPreset;\n\n'
+          if export_line not in s:
+              if marker not in s:
+                  raise SystemExit('runSmartAuto marker not found')
+              s = s.replace(marker, export_line + marker, 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('_worker.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('GMP Körväg Studio V8.10 AUTO OMLÄGGNING', 'GMP Körväg Studio V8.11 OMLÄGGNING FIX')
+          s = s.replace('/detour-search.js?v=20261015-static-v4', '/detour-search.js?v=20261015-static-v5')
+          s = s.replace('/active-detour.js?v=20261015-static-v4', '/active-detour.js?v=20261015-static-v5')
+          s = s.replace('/smart-auto-detour.js?v=20261015-static-v4', '/smart-auto-detour.js?v=20261015-static-v5')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "ozgurozdemir785-dev"
+          git config user.email "ozgurozdemir785@gmail.com"
+          git add index.html smart-auto-detour.js _worker.js
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "Put Linné preset button directly in left panel"
+          git push
