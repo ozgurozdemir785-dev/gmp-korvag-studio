@@ -2,6 +2,7 @@
 'use strict';
 /* SMART_PLACE_DETOUR_V4
    SMART_PLACE_TERMINAL_SEARCH_V1
+   SMART_VIA_STREET_CORRIDOR_V2
    Generisk omläggningsnavigator. Använder appens interna navigator via window.GMP_APP,
    känner igen Västtrafik-hållplatser på den laddade linjen, kompletterar med kartträffar,
    och bygger omläggning mellan vald start/slut med valfria via-punkter.
@@ -71,11 +72,30 @@ function loadedTerminalMatches(q){
   }
   return out.sort((a,b)=>b.score-a.score).slice(0,6);
 }
+function geoStreetLine(g){
+  if(!g)return[];
+  if(g.type==='LineString')return Array.isArray(g.coordinates)?g.coordinates:[];
+  if(g.type==='MultiLineString'&&Array.isArray(g.coordinates))return g.coordinates.slice().sort((a,b)=>b.length-a.length)[0]||[];
+  return[];
+}
+function streetCorridor(g,center){
+  const A=app(),line=geoStreetLine(g).filter(c=>Array.isArray(c)&&Number.isFinite(+c[0])&&Number.isFinite(+c[1])).map(c=>[+c[0],+c[1]]);
+  if(!A||line.length<2)return[];
+  let ci=0,bd=Infinity;for(let i=0;i<line.length;i++){const d=A.hav(line[i],center);if(d<bd){bd=d;ci=i}}
+  let lo=ci,hi=ci,back=0,fwd=0;
+  while(lo>0&&back<500){back+=A.hav(line[lo],line[lo-1]);lo--}
+  while(hi<line.length-1&&fwd<500){fwd+=A.hav(line[hi],line[hi+1]);hi++}
+  const seg=line.slice(lo,hi+1);if(seg.length<2)return[];
+  const max=9;if(seg.length<=max)return seg;
+  const out=[seg[0]];for(let i=1;i<max-1;i++)out.push(seg[Math.round(i*(seg.length-1)/(max-1))]);out.push(seg.at(-1));return out;
+}
 function classifyMapResult(x,q){
   const meta=((x.class||'')+' '+(x.type||'')+' '+(x.addresstype||'')+' '+(x.display_name||'')).toLowerCase();
   const terminal=/bus_station|bus_terminal|coach_station|transportation/.test(meta)||isTerminalName(x.display_name||'');
   const stop=!terminal&&/bus_stop|platform|public_transport|stop_position|station/.test(meta);
-  return {kind:terminal?'terminal':stop?'stop':'place',name:(x.display_name||q).split(',')[0],detail:(terminal?'Bussterminal / knutpunkt · ':'')+(x.display_name||q),coord:[+x.lon,+x.lat],official:false,terminal,score:terminal?88:stop?55:30};
+  const street=!terminal&&!stop&&(x.class==='highway'||/ highway | road | street /.test(' '+meta+' '));
+  const coord=[+x.lon,+x.lat],corridor=street?streetCorridor(x.geojson,coord):[];
+  return {kind:terminal?'terminal':stop?'stop':street?'street':'place',name:(x.display_name||q).split(',')[0],detail:(terminal?'Bussterminal / knutpunkt · ':street&&corridor.length?'GATA – följer gatans sträckning · ':'')+(x.display_name||q),coord,official:false,terminal,street,corridor,score:terminal?88:stop?55:street?72:30};
 }
 async function mapMatches(q){
   if(!q?.trim())return[];
@@ -83,7 +103,7 @@ async function mapMatches(q){
     const base=mapAliasQuery(q).trim(),queries=[base+', Göteborg'];
     if(!/terminal|busstation|resecentrum|resecenter/i.test(base))queries.push(base+' busstation, Göteborg');
     const responses=await Promise.all(queries.map(async qq=>{
-      const u='/geo/search?format=json&addressdetails=1&limit=8&countrycodes=se&q='+encodeURIComponent(qq);
+      const u='/geo/search?format=json&addressdetails=1&polygon_geojson=1&limit=8&countrycodes=se&q='+encodeURIComponent(qq);
       try{const r=await fetch(u,{headers:{Accept:'application/json'},cache:'no-store'});return r.ok?(await r.json()):[]}catch{return[]}
     }));
     const seen=new Set(),out=[];
@@ -106,7 +126,7 @@ function hideLists(except=''){for(const id of ['smartFromSuggestions','smartViaS
 function renderSuggestions(inputId,items){
   const box=$(listId(inputId));if(!box)return;
   if(!items.length){box.innerHTML='<div class="spEmpty">Ingen träff ännu.</div>';box.classList.remove('hidden');return}
-  box.innerHTML=items.map((x,i)=>`<button type="button" class="spHit" data-i="${i}"><b>${x.kind==='terminal'?'🚌':x.kind==='stop'?'🚏':'📍'} ${esc(x.name)}${x.official?'<span>VÄSTTRAFIK</span>':x.kind==='terminal'?'<span>TERMINAL</span>':''}</b><small>${esc(x.detail)}</small></button>`).join('');
+  box.innerHTML=items.map((x,i)=>`<button type="button" class="spHit" data-i="${i}"><b>${x.kind==='terminal'?'🚌':x.kind==='stop'?'🚏':x.kind==='street'?'🛣️':'📍'} ${esc(x.name)}${x.official?'<span>VÄSTTRAFIK</span>':x.kind==='terminal'?'<span>TERMINAL</span>':''}</b><small>${esc(x.detail)}</small></button>`).join('');
   box.classList.remove('hidden');
   box.querySelectorAll('.spHit').forEach(b=>b.onclick=()=>selectSuggestion(inputId,items[+b.dataset.i]));
 }
@@ -129,7 +149,7 @@ function bindSuggest(inputId){
 }
 function renderViaChips(){
   const box=$('smartViaChips');if(!box)return;
-  box.innerHTML=viaPoints.length?viaPoints.map((x,i)=>`<span class="spChip">${esc(x.name)} <button type="button" data-x="${i}">×</button></span>`).join(''):'<span class="spMuted">Ingen via-punkt – appen söker direkt mellan start och återanslutning.</span>';
+  box.innerHTML=viaPoints.length?viaPoints.map((x,i)=>`<span class="spChip">${esc(x.name)}${x.corridor?.length?' · följ gata':''} <button type="button" data-x="${i}">×</button></span>`).join(''):'<span class="spMuted">Ingen via-punkt – appen söker direkt mellan start och återanslutning.</span>';
   box.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{viaPoints.splice(+b.dataset.x,1);renderViaChips()});
 }
 async function resolveText(q){
@@ -137,6 +157,21 @@ async function resolveText(q){
 }
 async function resolveViaText(q){if(!q)return;const x=await resolveText(q);viaPoints.push(x);$('smartVia').value='';$('smartViaSuggestions')?.classList.add('hidden');renderViaChips();status('Via tillagd: '+x.name)}
 async function fieldPlace(id){const p=picked[id];if(p)return p;const q=$(id)?.value.trim();if(!q)throw new Error(id==='smartFrom'?'Skriv var omläggningen börjar.':'Skriv var bussen ska tillbaka till ordinarie linje.');const x=await resolveText(q);picked[id]=x;$(id).value=x.name;return x}
+function smartViaRoutePoints(start,items,end,A){
+  const out=[[+start[0],+start[1]]];let cur=out[0];
+  for(let vi=0;vi<items.length;vi++){
+    const x=items[vi],next=items[vi+1]?.coord||end;
+    let corr=(x?.corridor||[]).filter(c=>Array.isArray(c)&&c.length>=2).map(c=>[+c[0],+c[1]]);
+    if(corr.length>1){
+      const normal=A.hav(cur,corr[0])+A.hav(corr.at(-1),next),rev=A.hav(cur,corr.at(-1))+A.hav(corr[0],next);
+      if(rev<normal)corr=corr.slice().reverse();
+      for(const c of corr)if(A.hav(out.at(-1),c)>12)out.push(c);
+    }else if(x?.coord&&A.hav(out.at(-1),x.coord)>12)out.push([+x.coord[0],+x.coord[1]]);
+    cur=out.at(-1);
+  }
+  if(A.hav(out.at(-1),end)>5)out.push([+end[0],+end[1]]);else out[out.length-1]=[+end[0],+end[1]];
+  return out;
+}
 function nearestIdx(route,p,A){let bi=0,bd=Infinity;for(let i=0;i<(route||[]).length;i++){const d=A.hav(route[i],p);if(d<bd){bd=d;bi=i}}return bi}
 function stopIndexForPlace(place,d,A){
   if(!place?.official||!d?.stops?.length)return-1;
@@ -243,7 +278,7 @@ async function buildDetour(){
     if(A.state.direction!==best.name)A.setDirection(best.name);
     const d=A.state.dirs[best.name],start=best.a.coord,end=best.b.coord;
     const ia=nearestIdx(d.ordinary,start,A),ib=nearestIdx(d.ordinary,end,A);
-    const points=[start,...viaPoints.map(x=>x.coord),end];
+    const points=smartViaRoutePoints(start,viaPoints,end,A);
     status('Bygger busskörväg'+(viaPoints.length?' via '+viaPoints.map(x=>x.name).join(' → '):'')+'…','busy');
     let res;try{res=await routeVia(points,A)}catch(e){if(points.length>2)res=await routeSegmented(points,A);else throw e}
     if(!res?.coords?.length||res.coords.length<2)throw new Error('Ingen körbar bussväg hittades.');
