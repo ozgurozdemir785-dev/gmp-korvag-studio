@@ -1,0 +1,2 @@
+Linné preset click fix deployed 2026-10-15.
+Static load order: detour-search -> active-detour -> smart-auto-detour -> linne-preset-bootstrap.
