@@ -27,7 +27,7 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: eb367029b1b6f6cac7f6524333e889b1
           command: pages deploy . --project-name=gmp-korvag-studio --branch=main
       - name: Zip
         run: |
