@@ -1,0 +1,143 @@
+name: Optimize GMP Studio V8.14
+
+on:
+  push:
+    paths:
+      - '.github/workflows/performance-v814.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  optimize-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply performance optimizations
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='GMP_PERFORMANCE_V814'
+          if marker in s:
+              print('Performance patch already applied')
+              raise SystemExit(0)
+
+          # Version label
+          s=s.replace('<title>GMP Körväg Studio V8.13 · KARTOR 2026</title>', '<title>GMP Körväg Studio V8.14 · SNABB 2026</title>')
+          s=s.replace('<span>V8.13 · KARTOR 2026 · 2D + SAT + 3D + 4D</span>', '<span>V8.14 · SNABB 2026 · 2D + SAT + 3D + 4D</span>')
+
+          # Let browser/CDN cache satellite tiles normally. Provider remains current Esri imagery.
+          s=s.replace('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${yy}/${xx}?gmp=2026-10-16',
+                      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${yy}/${xx}')
+
+          # Fewer off-screen raster tiles. One-tile buffer is enough and materially lowers requests/DOM work.
+          old="z=state.zoom,margin=2,x0=Math.floor(left/TILE)-margin,x1=Math.floor((left+w)/TILE)+margin,y0=Math.floor(top/TILE)-margin,y1=Math.floor((top+h)/TILE)+margin;"
+          new="z=state.zoom,margin=1,x0=Math.floor(left/TILE)-margin,x1=Math.floor((left+w)/TILE)+margin,y0=Math.floor(top/TILE)-margin,y1=Math.floor((top+h)/TILE)+margin;"
+          if old not in s:
+              raise SystemExit('renderTiles margin pattern not found')
+          s=s.replace(old,new,1)
+
+          # Compute each SVG route path once instead of twice (white casing + colored line).
+          old="function drawPath(svg,cs,color,width=5,dash=''){if(!cs||cs.length<2)return;svg.appendChild(svgEl('path',{d:pathD(cs),fill:'none',stroke:'#fff','stroke-width':width+4,'stroke-linecap':'round','stroke-linejoin':'round',opacity:.9}));const p=svgEl('path',{d:pathD(cs),fill:'none',stroke:color,'stroke-width':width,'stroke-linecap':'round','stroke-linejoin':'round'});if(dash)p.setAttribute('stroke-dasharray',dash);svg.appendChild(p)}"
+          new="function drawPath(svg,cs,color,width=5,dash=''){if(!cs||cs.length<2)return;const d=pathD(cs);svg.appendChild(svgEl('path',{d,fill:'none',stroke:'#fff','stroke-width':width+4,'stroke-linecap':'round','stroke-linejoin':'round',opacity:.9}));const p=svgEl('path',{d,fill:'none',stroke:color,'stroke-width':width,'stroke-linecap':'round','stroke-linejoin':'round'});if(dash)p.setAttribute('stroke-dasharray',dash);svg.appendChild(p)}"
+          if old not in s:
+              raise SystemExit('drawPath pattern not found')
+          s=s.replace(old,new,1)
+
+          # Fewer arrow calculations while moving, without changing route geometry.
+          old="const arrowCs=cs.length>1200?sampleForTrace(cs,1200):cs,pts=arrowCs.map(ll2s);"
+          new="const arrowLimit=state.playing?650:1000,arrowCs=cs.length>arrowLimit?sampleForTrace(cs,arrowLimit):cs,pts=arrowCs.map(ll2s);"
+          if old not in s:
+              raise SystemExit('arrow sample pattern not found')
+          s=s.replace(old,new,1)
+
+          # Only build stop/object DOM for items near the visible viewport.
+          old="function renderMarkers(){const layer=$('markerLayer'),v={...VIS_DEFAULTS,...(state.visibility||{})};layer.innerHTML='';const dirsToShow="
+          new="function renderMarkers(){const layer=$('markerLayer'),v={...VIS_DEFAULTS,...(state.visibility||{})},[vw,vh]=size(),inView=p=>p&&p[0]>=-120&&p[0]<=vw+120&&p[1]>=-120&&p[1]<=vh+120;layer.innerHTML='';const dirsToShow="
+          if old not in s:
+              raise SystemExit('renderMarkers header pattern not found')
+          s=s.replace(old,new,1)
+
+          old="if(v.stops)for(const st of (d.stops||[])){const p=ll2s(st.coord),m=document.createElement('div');"
+          new="if(v.stops)for(const st of (d.stops||[])){const p=ll2s(st.coord);if(!inView(p))continue;const m=document.createElement('div');"
+          if old not in s:
+              raise SystemExit('stop marker pattern not found')
+          s=s.replace(old,new,1)
+
+          old="if(v.objects)for(const o of state.objects){if(o.scope!=='both'&&o.scope!==state.direction&&!state.showBoth)continue;const p=ll2s(o.coord),m=document.createElement('div');"
+          new="if(v.objects)for(const o of state.objects){if(o.scope!=='both'&&o.scope!==state.direction&&!state.showBoth)continue;const p=ll2s(o.coord);if(!inView(p))continue;const m=document.createElement('div');"
+          if old not in s:
+              raise SystemExit('object marker pattern not found')
+          s=s.replace(old,new,1)
+
+          # During pan/zoom redraw map layers fast, but don't rebuild every marker every 30 ms.
+          old="let mapRenderQueued=false,lastMapRenderAt=0;\nfunction scheduleMapRender(minGap=28){if(mapRenderQueued)return;mapRenderQueued=true;requestAnimationFrame(()=>{mapRenderQueued=false;const now=performance.now();if(now-lastMapRenderAt<minGap){setTimeout(()=>scheduleMapRender(minGap),Math.max(0,minGap-(now-lastMapRenderAt)));return}lastMapRenderAt=performance.now();renderMap()})}"
+          new="/* GMP_PERFORMANCE_V814 */\nlet mapRenderQueued=false,lastMapRenderAt=0,lastMarkerRenderAt=0;\nfunction scheduleMapRender(minGap=34){if(mapRenderQueued)return;mapRenderQueued=true;requestAnimationFrame(()=>{mapRenderQueued=false;const now=performance.now();if(now-lastMapRenderAt<minGap){setTimeout(()=>scheduleMapRender(minGap),Math.max(0,minGap-(now-lastMapRenderAt)));return}lastMapRenderAt=now;renderTiles();renderOverlay();renderBus();if(now-lastMarkerRenderAt>=170){renderMarkers();lastMarkerRenderAt=now}})}"
+          if old not in s:
+              raise SystemExit('scheduleMapRender pattern not found')
+          s=s.replace(old,new,1)
+
+          # Inertia used to rebuild the entire UI every animation frame. Now it only repaints the map and does one full refresh at the end.
+          old="function inertia(vx,vy){let n=0;function step(){vx*=.86;vy*=.86;if(Math.hypot(vx,vy)<.2||n++>24)return;const c=lngLatToWorld(state.center);state.center=worldToLngLat([c[0]-vx,c[1]-vy]);renderAll();requestAnimationFrame(step)}requestAnimationFrame(step)}"
+          new="function inertia(vx,vy){let n=0;function step(){vx*=.86;vy*=.86;if(Math.hypot(vx,vy)<.2||n++>24){renderAll();return}const c=lngLatToWorld(state.center);state.center=worldToLngLat([c[0]-vx,c[1]-vy]);scheduleMapRender(34);requestAnimationFrame(step)}requestAnimationFrame(step)}"
+          if old not in s:
+              raise SystemExit('inertia pattern not found')
+          s=s.replace(old,new,1)
+
+          # Trafficstudio is expensive; do nothing while its dock is collapsed.
+          old="function renderTrafficStudioStatus(sample=null,route=null){route=route?.length?route:"
+          new="function renderTrafficStudioStatus(sample=null,route=null){if($('trafficStudioDock')?.classList.contains('collapsed'))return;route=route?.length?route:"
+          if old not in s:
+              raise SystemExit('traffic status pattern not found')
+          s=s.replace(old,new,1)
+
+          old="function renderTrafficStudioPlayback(route=null){route=route?.length?route:"
+          new="function renderTrafficStudioPlayback(route=null){if($('trafficStudioDock')?.classList.contains('collapsed'))return;route=route?.length?route:"
+          if old not in s:
+              raise SystemExit('traffic playback pattern not found')
+          s=s.replace(old,new,1)
+
+          old="function updateTrafficStudioLiveThrottled(){const now=performance.now();"
+          new="function updateTrafficStudioLiveThrottled(){if($('trafficStudioDock')?.classList.contains('collapsed'))return;const now=performance.now();"
+          if old not in s:
+              raise SystemExit('traffic live throttle pattern not found')
+          s=s.replace(old,new,1)
+
+          # Slightly lower 3D property-update frequency gives a steadier frame rate on normal PCs.
+          old="const _paintNow=performance.now(),_paintGap=googleCameraMode==='driver'?28:34;"
+          new="const _paintNow=performance.now(),_paintGap=document.hidden?120:(googleCameraMode==='driver'?36:42);"
+          if old not in s:
+              raise SystemExit('Google paint-gap pattern not found')
+          s=s.replace(old,new,1)
+
+          p.write_text(s,encoding='utf-8')
+          print('V8.14 performance patch applied')
+          PY
+
+      - name: Commit performance update
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'Optimize rendering and map performance V8.14'
+            git push
+          fi
+
+      - name: Deploy optimized app to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: eb367029b1b6f6cac7f6524333e889b1
+          command: pages deploy . --project-name=gmp-korvag-studio --branch=main
