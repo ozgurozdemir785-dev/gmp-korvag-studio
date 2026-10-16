@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1523">
-<title>GMP Körväg Studio V8.7 3D SATELLIT FIX</title>
+<title>GMP Körväg Studio V8.12 · 2D 2026</title>
 <style>
 :root{
   --bg:#eef2f6;--panel:#fff;--ink:#172033;--muted:#667085;--line:#d0d5dd;
@@ -120,7 +120,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 <body>
 <div class="app">
   <header class="topbar">
-    <div class="brand"><div class="brandmark">GMP</div><div><strong>Körväg Studio</strong><span>V8.7 3D FIX – API + kameraregissör</span></div></div>
+    <div class="brand"><div class="brandmark">GMP</div><div><strong>Körväg Studio</strong><span>V8.12 · 2D 2026 + 3D</span></div></div>
     <div class="searchWrap">
       <div class="searchBar">
         <select id="searchTarget" aria-label="Vad sökresultatet ska användas till">
@@ -338,7 +338,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
         <button id="hornBottomBtn" class="btn small">📣 Tuta</button><div class="signalCtl"><button id="sigLeftBtn" class="btn small" title="Vänster blinkers">⬅</button><button id="sigAutoBtn" class="btn small active" title="Automatiska blinkers">AUTO</button><button id="sigRightBtn" class="btn small" title="Höger blinkers">➡</button><button id="sigHazardBtn" class="btn small" title="Varningsblinkers">⚠</button></div>
         <button id="recordBtn" class="btn red small">● Spela in kartan</button><button id="recordStopBtn" class="btn small" disabled>Stoppa insp.</button>
       </div>
-      <div id="attrib" class="attrib">Karta © Esri</div>
+      <div id="attrib" class="attrib">2D 2026 · © OpenStreetMap contributors</div>
     </section>
 
     <aside id="rightPanel" class="panel right">
@@ -551,11 +551,13 @@ function size(){const r=$('mapViewport').getBoundingClientRect();return[r.width,
 function centerWorld(){return lngLatToWorld(state.center)}
 function ll2s(c){const[w,h]=size(),cw=centerWorld(),p=lngLatToWorld(c);return[p[0]-cw[0]+w/2,p[1]-cw[1]+h/2]}
 function s2ll(x,y){const[w,h]=size(),cw=centerWorld();return worldToLngLat([cw[0]+x-w/2,cw[1]+y-h/2])}
+/* GMP_2D_MAP_2026_OSM_V1
+   2D uses the current OpenStreetMap standard basemap.
+   Satellite remains on Esri World Imagery. */
 function tileUrl(z,x,y){
   const n=2**z,xx=((x%n)+n)%n,yy=Math.max(0,Math.min(n-1,y));
-  // V5.8: edit maps load directly from Esri so 2D/Satellite drawing works even if a Cloudflare proxy route is unavailable.
-  const service=state.mapMode==='sat'?'World_Imagery':'World_Street_Map';
-  return `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/${z}/${yy}/${xx}`;
+  if(state.mapMode==='2d')return `https://tile.openstreetmap.org/${z}/${xx}/${yy}.png`;
+  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${yy}/${xx}`;
 }
 function renderTiles(){
  const pane=$('tilePane'),[w,h]=size(),cw=centerWorld(),left=cw[0]-w/2,top=cw[1]-h/2,z=state.zoom,margin=2,x0=Math.floor(left/TILE)-margin,x1=Math.floor((left+w)/TILE)+margin,y0=Math.floor(top/TILE)-margin,y1=Math.floor((top+h)/TILE)+margin;
@@ -567,14 +569,21 @@ function renderTiles(){
      waiting++;img=new Image();img.className='tile';img.draggable=false;img.decoding='async';img.style.opacity='0';img.style.transition='opacity .12s ease';
      const settled=()=>{img.style.opacity='1';waiting=Math.max(0,waiting-1);if(waiting===0)requestAnimationFrame(cleanup)};
      img.onload=settled;img.src=tileUrl(z,tx,ty);img.onerror=()=>{
-       if(!img.dataset.retry){img.dataset.retry='1';img.src=img.src.replace('server.arcgisonline.com','services.arcgisonline.com');return}
+       if(!img.dataset.retry){
+         img.dataset.retry='1';
+         if(state.mapMode==='2d'){
+           const n=2**z,xx=((tx%n)+n)%n,yy=Math.max(0,Math.min(n-1,ty));
+           img.src=`https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${yy}/${xx}`;
+         }else img.src=img.src.replace('server.arcgisonline.com','services.arcgisonline.com');
+         return;
+       }
        img.style.visibility='hidden';settled();
      };tiles.set(key,img);pane.appendChild(img)
    }
    img.style.left=(tx*TILE-left)+'px';img.style.top=(ty*TILE-top)+'px';
  }
  if(waiting===0)cleanup();
- $('attrib').textContent=state.mapMode==='sat'?'Satellit © Esri, Maxar, Earthstar Geographics':'Karta © Esri'
+ $('attrib').textContent=state.mapMode==='sat'?'Satellit © Esri, Maxar, Earthstar Geographics':'2D 2026 · © OpenStreetMap contributors'
 }
 function clearTiles(){for(const img of tiles.values())img.remove();tiles.clear()}
 function svgEl(tag,a={}){const e=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(a).forEach(([k,v])=>e.setAttribute(k,v));return e}
@@ -706,6 +715,7 @@ function setMode(mode){
   // must never block normal pan/zoom after leaving Google 3D/4D.
   drag=null; draw=null; pinch=null; pointers.clear(); spacePanDown=false;
   state.mapMode=mode;
+  if(mode==='2d'&&state.zoom>19)state.zoom=19;
   state.camera='overview';
   state.manualBearing=0;
   state.cameraBearing=0;
@@ -781,7 +791,7 @@ function zoomAt(delta,px=null,py=null){
   const [w,h]=size();
   const x=px==null?w/2:px,y=py==null?h/2:py;
   const anchor=s2ll(x,y);
-  const nz=Math.max(3,Math.min(20,state.zoom+(delta>0?1:-1)));
+  const maxZoom=state.mapMode==='2d'?19:20;const nz=Math.max(3,Math.min(maxZoom,state.zoom+(delta>0?1:-1)));
   if(nz===state.zoom)return;
   state.zoom=nz;
   const aw=lngLatToWorld(anchor,nz);
