@@ -1,3 +1,4 @@
+# V8.19 package build trigger
 name: Build V8.19 Drone Stable Full ZIP
 
 on:
@@ -25,13 +26,11 @@ jobs:
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
 
-          # Version label.
           s=re.sub(r'<title>GMP Körväg Studio V8\.[^<]+</title>',
                    '<title>GMP Körväg Studio V8.19 · DRÖNARE STABIL 2026</title>',s,count=1)
           s=s.replace('V8.17 · KOMMANDO 2026','V8.19 · DRÖNARE STABIL 2026')
           s=s.replace('V8.18 · MP4 2026','V8.19 · DRÖNARE STABIL 2026')
 
-          # Stable drone: shorter/closer view, much smaller side-bias and slower heading changes.
           old_drone="function droneCameraPlan(route,distance,total){const d=dir(),here=roadMetaForDistance(distance,route,d),ahead=roadMetaForDistance(Math.min(total,distance+85),route,d),score=droneEnvironmentScore(route,distance,total);const h0=routeHeadingAt(route,Math.max(0,distance-10),total,14),h1=routeHeadingAt(route,Math.min(total,distance+38),total,16),h2=routeHeadingAt(route,Math.min(total,distance+78),total,20),turn=angleDelta(h0,h2),curve=Math.min(1,Math.abs(turn)/58),round=!!(here?.roundabout||ahead?.roundabout);let side=0;if(Math.abs(turn)>5)side=turn>0?-1:1;else if(score>.42)side=googleDroneSide||((Math.sin(h1*Math.PI/180)>=0)?1:-1);const lift=Math.max(0,Math.min(1,score+curve*.22+(round?.26:0)));const bias=side*(12+lift*26+curve*18+(round?10:0));return{score,lift,side,bias,look:8+lift*10+curve*5,tilt:51-lift*13,range:185+lift*125+curve*35,fov:48+lift*2,round,curve}}"
           new_drone="function droneCameraPlan(route,distance,total){const d=dir(),here=roadMetaForDistance(distance,route,d),ahead=roadMetaForDistance(Math.min(total,distance+95),route,d),score=droneEnvironmentScore(route,distance,total);const h0=routeHeadingAt(route,Math.max(0,distance-18),total,22),h1=routeHeadingAt(route,Math.min(total,distance+48),total,24),h2=routeHeadingAt(route,Math.min(total,distance+92),total,28),turn=angleDelta(h0,h2),curve=Math.min(1,Math.abs(turn)/88),round=!!(here?.roundabout||ahead?.roundabout);let side=0;if(Math.abs(turn)>20&&curve>.28)side=turn>0?-1:1;else if(Math.abs(googleDroneSide)>.35&&curve>.18)side=googleDroneSide>0?1:-1;const lift=Math.max(0,Math.min(1,score*.58+curve*.18+(round?.08:0)));const bias=side*(3.5+lift*4.5+curve*5+(round?1.5:0));return{score,lift,side,bias,look:12+lift*4+curve*3,tilt:59-lift*6,range:122+lift*42+curve*16,fov:46+lift,round,curve}}"
           if old_drone in s:
@@ -46,14 +45,10 @@ jobs:
           elif 'STABIL · RONDELL' not in s:
               raise SystemExit('Drone runtime block not found')
 
-          s=s.replace("googleCameraMode==='drone'?2.15:googleCameraMode==='follow'?3.4:2.9",
-                      "googleCameraMode==='drone'?1.05:googleCameraMode==='follow'?3.4:2.9")
-          s=s.replace("googleCameraMode==='drone'?22:googleCameraMode==='front'?18",
-                      "googleCameraMode==='drone'?6.5:googleCameraMode==='front'?18")
-          s=s.replace("if(mode==='drone')toast('Drönarläge: SMART HÖJD är aktiv och höjer kameran mjukt på trånga, kurviga eller kuperade vägavsnitt.');",
-                      "if(mode==='drone')toast('Drönarläge STABIL: närmare kamera, mjukare riktning och kraftigt mindre snurr.');")
+          s=s.replace("googleCameraMode==='drone'?2.15:googleCameraMode==='follow'?3.4:2.9","googleCameraMode==='drone'?1.05:googleCameraMode==='follow'?3.4:2.9")
+          s=s.replace("googleCameraMode==='drone'?22:googleCameraMode==='front'?18","googleCameraMode==='drone'?6.5:googleCameraMode==='front'?18")
+          s=s.replace("if(mode==='drone')toast('Drönarläge: SMART HÖJD är aktiv och höjer kameran mjukt på trånga, kurviga eller kuperade vägavsnitt.');","if(mode==='drone')toast('Drönarläge STABIL: närmare kamera, mjukare riktning och kraftigt mindre snurr.');")
 
-          # Faster visual flow on bus-priority roads/terminal-style service roads.
           old_speed="function effectiveSpeedLimit(sample,d=dir()){const route=state.driveRoute?.length>1?state.driveRoute:buildDriveRoute(d),m=roadMetaForSample(sample,route,d);state.currentRoadMeta=m;let lim=m?.speedLimit||40;if(!m?.posted)lim=Math.min(lim,/motorway|trunk/.test(m?.roadClass||'')?80:50);if(Number.isFinite(state.activeSpeedLimit))lim=Math.min(lim,state.activeSpeedLimit);return Math.max(10,Math.min(90,lim))}"
           new_speed="""function effectiveSpeedLimit(sample,d=dir()){
   const route=state.driveRoute?.length>1?state.driveRoute:buildDriveRoute(d),m=roadMetaForSample(sample,route,d);state.currentRoadMeta=m;
@@ -82,7 +77,6 @@ jobs:
               if curve_anchor not in s: raise SystemExit('Curve speed anchor not found')
               s=s.replace(curve_anchor,curve_patch,1)
 
-          # Preserve smooth recording and prefer native MP4/H.264 when Edge/Chrome supports it.
           old_rec="""    mediaChunks=[];
     const type=MediaRecorder.isTypeSupported('video/webm;codecs=vp8')?'video/webm;codecs=vp8':(MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm');
     mediaRecorder=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:3500000});
@@ -108,11 +102,9 @@ jobs:
           if old_rec in s:
               s=s.replace(old_rec,new_rec,1)
 
-          # Sanity checks for the package.
           required=['range:122+lift*42+curve*16','STABIL · RONDELL','const busZone=!!m?.busPriority','V8.19: bussgata/terminal','route-command.js']
           missing=[x for x in required if x not in s]
           if missing: raise SystemExit('Missing V8.19 markers: '+', '.join(missing))
-
           p.write_text(s,encoding='utf-8')
           PY
 
