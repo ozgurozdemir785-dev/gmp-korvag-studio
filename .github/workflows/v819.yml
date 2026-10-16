@@ -1,0 +1,41 @@
+name: V819 Build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch
+        run: python tools/patch_v819.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "V8.19 stable drone and faster busway terminal flow" || true
+          git push
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy . --project-name=gmp-korvag-studio --branch=main
+      - name: Zip
+        run: |
+          zip -r GMP-Korvag-Studio-V8.19-DRONARE-STABIL-FULL.zip . -x ".git/*" "GMP-Korvag-Studio-V8.19-DRONARE-STABIL-FULL.zip"
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: GMP-Korvag-Studio-V8.19-DRONARE-STABIL-FULL
+          path: GMP-Korvag-Studio-V8.19-DRONARE-STABIL-FULL.zip
+          if-no-files-found: error
+          retention-days: 90
