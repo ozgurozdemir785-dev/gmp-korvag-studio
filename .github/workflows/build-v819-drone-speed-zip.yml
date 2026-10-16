@@ -1,5 +1,4 @@
-# V8.19 package build trigger
-name: Build V8.19 Drone Stable Full ZIP
+name: Build V8.19 ZIP
 
 on:
   push:
@@ -11,104 +10,16 @@ permissions:
   contents: write
 
 jobs:
-  patch-deploy-export:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Patch V8.19 drone camera, busway flow and MP4
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
+      - name: Patch app
+        run: python tools/patch_v819.py
 
-          p=Path('index.html')
-          s=p.read_text(encoding='utf-8')
-
-          s=re.sub(r'<title>GMP Körväg Studio V8\.[^<]+</title>',
-                   '<title>GMP Körväg Studio V8.19 · DRÖNARE STABIL 2026</title>',s,count=1)
-          s=s.replace('V8.17 · KOMMANDO 2026','V8.19 · DRÖNARE STABIL 2026')
-          s=s.replace('V8.18 · MP4 2026','V8.19 · DRÖNARE STABIL 2026')
-
-          old_drone="function droneCameraPlan(route,distance,total){const d=dir(),here=roadMetaForDistance(distance,route,d),ahead=roadMetaForDistance(Math.min(total,distance+85),route,d),score=droneEnvironmentScore(route,distance,total);const h0=routeHeadingAt(route,Math.max(0,distance-10),total,14),h1=routeHeadingAt(route,Math.min(total,distance+38),total,16),h2=routeHeadingAt(route,Math.min(total,distance+78),total,20),turn=angleDelta(h0,h2),curve=Math.min(1,Math.abs(turn)/58),round=!!(here?.roundabout||ahead?.roundabout);let side=0;if(Math.abs(turn)>5)side=turn>0?-1:1;else if(score>.42)side=googleDroneSide||((Math.sin(h1*Math.PI/180)>=0)?1:-1);const lift=Math.max(0,Math.min(1,score+curve*.22+(round?.26:0)));const bias=side*(12+lift*26+curve*18+(round?10:0));return{score,lift,side,bias,look:8+lift*10+curve*5,tilt:51-lift*13,range:185+lift*125+curve*35,fov:48+lift*2,round,curve}}"
-          new_drone="function droneCameraPlan(route,distance,total){const d=dir(),here=roadMetaForDistance(distance,route,d),ahead=roadMetaForDistance(Math.min(total,distance+95),route,d),score=droneEnvironmentScore(route,distance,total);const h0=routeHeadingAt(route,Math.max(0,distance-18),total,22),h1=routeHeadingAt(route,Math.min(total,distance+48),total,24),h2=routeHeadingAt(route,Math.min(total,distance+92),total,28),turn=angleDelta(h0,h2),curve=Math.min(1,Math.abs(turn)/88),round=!!(here?.roundabout||ahead?.roundabout);let side=0;if(Math.abs(turn)>20&&curve>.28)side=turn>0?-1:1;else if(Math.abs(googleDroneSide)>.35&&curve>.18)side=googleDroneSide>0?1:-1;const lift=Math.max(0,Math.min(1,score*.58+curve*.18+(round?.08:0)));const bias=side*(3.5+lift*4.5+curve*5+(round?1.5:0));return{score,lift,side,bias,look:12+lift*4+curve*3,tilt:59-lift*6,range:122+lift*42+curve*16,fov:46+lift,round,curve}}"
-          if old_drone in s:
-              s=s.replace(old_drone,new_drone,1)
-          elif 'range:122+lift*42+curve*16' not in s:
-              raise SystemExit('Drone camera function not found')
-
-          old_drone_runtime="else if(googleCameraMode==='drone'){dronePlan=droneCameraPlan(route,sample.distance||0,total);const blend=force?1:(1-Math.exp(-1.35*dt)),sideBlend=force?1:(1-Math.exp(-.72*dt)),biasBlend=force?1:(1-Math.exp(-.82*dt));googleDroneLift+=(dronePlan.lift-googleDroneLift)*blend;googleDroneSide+=(dronePlan.side-googleDroneSide)*sideBlend;googleDroneHeadingBias+=(dronePlan.bias-googleDroneHeadingBias)*biasBlend;look=dronePlan.look;tilt=dronePlan.tilt;range=dronePlan.range;fov=dronePlan.fov;targetAltitude=3.8+googleDroneLift*4.8;const st=$('googleDroneSmartState');if(st)st.textContent=dronePlan.round?'AUTO · RONDELL':Math.abs(googleDroneHeadingBias)>18?'AUTO · SIDOVY':googleDroneLift>.55?'AUTO · HÖGT':'AUTO'}"
-          new_drone_runtime="else if(googleCameraMode==='drone'){dronePlan=droneCameraPlan(route,sample.distance||0,total);const blend=force?1:(1-Math.exp(-.78*dt)),sideBlend=force?1:(1-Math.exp(-.28*dt)),biasBlend=force?1:(1-Math.exp(-.34*dt));googleDroneLift+=(dronePlan.lift-googleDroneLift)*blend;googleDroneSide+=(dronePlan.side-googleDroneSide)*sideBlend;googleDroneHeadingBias+=(dronePlan.bias-googleDroneHeadingBias)*biasBlend;look=dronePlan.look;tilt=dronePlan.tilt;range=dronePlan.range;fov=dronePlan.fov;targetAltitude=2.8+googleDroneLift*2.6;const st=$('googleDroneSmartState');if(st)st.textContent=dronePlan.round?'STABIL · RONDELL':Math.abs(googleDroneHeadingBias)>7?'STABIL · KURVA':googleDroneLift>.55?'STABIL · HÖJD':'STABIL'}"
-          if old_drone_runtime in s:
-              s=s.replace(old_drone_runtime,new_drone_runtime,1)
-          elif 'STABIL · RONDELL' not in s:
-              raise SystemExit('Drone runtime block not found')
-
-          s=s.replace("googleCameraMode==='drone'?2.15:googleCameraMode==='follow'?3.4:2.9","googleCameraMode==='drone'?1.05:googleCameraMode==='follow'?3.4:2.9")
-          s=s.replace("googleCameraMode==='drone'?22:googleCameraMode==='front'?18","googleCameraMode==='drone'?6.5:googleCameraMode==='front'?18")
-          s=s.replace("if(mode==='drone')toast('Drönarläge: SMART HÖJD är aktiv och höjer kameran mjukt på trånga, kurviga eller kuperade vägavsnitt.');","if(mode==='drone')toast('Drönarläge STABIL: närmare kamera, mjukare riktning och kraftigt mindre snurr.');")
-
-          old_speed="function effectiveSpeedLimit(sample,d=dir()){const route=state.driveRoute?.length>1?state.driveRoute:buildDriveRoute(d),m=roadMetaForSample(sample,route,d);state.currentRoadMeta=m;let lim=m?.speedLimit||40;if(!m?.posted)lim=Math.min(lim,/motorway|trunk/.test(m?.roadClass||'')?80:50);if(Number.isFinite(state.activeSpeedLimit))lim=Math.min(lim,state.activeSpeedLimit);return Math.max(10,Math.min(90,lim))}"
-          new_speed="""function effectiveSpeedLimit(sample,d=dir()){
-  const route=state.driveRoute?.length>1?state.driveRoute:buildDriveRoute(d),m=roadMetaForSample(sample,route,d);state.currentRoadMeta=m;
-  let lim=m?.speedLimit||40;
-  const zone=((m?.highway||'')+' '+(m?.roadClass||'')+' '+(m?.use||'')+' '+(m?.busAccess||'')+' '+(m?.access||'')).toLowerCase();
-  const busZone=!!m?.busPriority||/busway|bus_guideway|bus lane|psv|designated/.test(zone);
-  const terminalZone=/service|parking|driveway|living/.test(zone)&&(busZone||/bus|psv/.test(zone));
-  if(!m?.posted){
-    lim=Math.min(lim,/motorway|trunk/.test(m?.roadClass||'')?80:50);
-    if(busZone)lim=Math.max(lim,32);
-    if(terminalZone)lim=Math.max(lim,24);
-  }
-  if(Number.isFinite(state.activeSpeedLimit))lim=Math.min(lim,state.activeSpeedLimit);
-  return Math.max(10,Math.min(90,lim));
-}"""
-          if old_speed in s:
-              s=s.replace(old_speed,new_speed,1)
-          elif 'const busZone=!!m?.busPriority' not in s:
-              raise SystemExit('Speed limit function not found')
-
-          curve_anchor="if(route?.length>1)v=Math.min(v,predictiveCurveLimit(route,sample,limitKmh));"
-          curve_patch="""if(route?.length>1)v=Math.min(v,predictiveCurveLimit(route,sample,limitKmh));
-  /* V8.19: bussgata/terminal ska inte krypa onödigt. Stopp, rondell och kraftig sväng bromsar fortfarande. */
-  {const fm=state.currentRoadMeta||roadMetaForSample(sample,route,dir())||{},zt=((fm.highway||'')+' '+(fm.roadClass||'')+' '+(fm.use||'')+' '+(fm.busAccess||'')+' '+(fm.access||'')).toLowerCase(),bz=!!fm.busPriority||/busway|bus_guideway|psv|designated/.test(zt),tz=/service|parking|driveway|living/.test(zt)&&(bz||/bus|psv/.test(zt));if((bz||tz)&&(!Number.isFinite(stopAhead)||stopAhead>30)&&turn<50&&(!Number.isFinite(radius)||radius>18)){const floor=(bz?18:14)/3.6;v=Math.max(v,Math.min(cruise,floor));}}"""
-          if 'V8.19: bussgata/terminal' not in s:
-              if curve_anchor not in s: raise SystemExit('Curve speed anchor not found')
-              s=s.replace(curve_anchor,curve_patch,1)
-
-          old_rec="""    mediaChunks=[];
-    const type=MediaRecorder.isTypeSupported('video/webm;codecs=vp8')?'video/webm;codecs=vp8':(MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm');
-    mediaRecorder=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:3500000});
-    mediaRecorder.ondataavailable=e=>{if(e.data.size)mediaChunks.push(e.data)};
-    mediaRecorder.onstop=()=>{
-      const blob=new Blob(mediaChunks,{type:'video/webm'}),a=document.createElement('a');
-      a.href=URL.createObjectURL(blob);a.download='GMP-korvag-'+new Date().toISOString().replace(/[:.]/g,'-')+'.webm';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
-      stream?.getTracks().forEach(t=>t.stop());restoreCameraRailAfterRecording();$('mapArea')?.classList.remove('recording');state.recording=false;syncRecordControls(false);toast('Inspelningen sparades – endast kart-/3D-ytan.',3500)
-"""
-          new_rec="""    mediaChunks=[];
-    const mp4Types=['video/mp4;codecs=avc1.42E01E','video/mp4;codecs=avc1','video/mp4;codecs=h264','video/mp4'];
-    const webmTypes=['video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm'];
-    const type=mp4Types.find(t=>MediaRecorder.isTypeSupported(t))||webmTypes.find(t=>MediaRecorder.isTypeSupported(t))||'';
-    const recorderOptions={videoBitsPerSecond:3500000};if(type)recorderOptions.mimeType=type;
-    mediaRecorder=new MediaRecorder(stream,recorderOptions);
-    mediaRecorder.ondataavailable=e=>{if(e.data.size)mediaChunks.push(e.data)};
-    mediaRecorder.onstop=()=>{
-      const actualType=mediaRecorder?.mimeType||type||'video/webm',isMp4=/^video\\/mp4/i.test(actualType),ext=isMp4?'mp4':'webm';
-      const blob=new Blob(mediaChunks,{type:actualType}),a=document.createElement('a');
-      a.href=URL.createObjectURL(blob);a.download='GMP-korvag-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
-      stream?.getTracks().forEach(t=>t.stop());restoreCameraRailAfterRecording();$('mapArea')?.classList.remove('recording');state.recording=false;syncRecordControls(false);toast(isMp4?'Inspelningen sparades som MP4 – klar för intranätet.':'MP4 stöds inte direkt i den här webbläsaren. Filmen sparades som WebM.',5000)
-"""
-          if old_rec in s:
-              s=s.replace(old_rec,new_rec,1)
-
-          required=['range:122+lift*42+curve*16','STABIL · RONDELL','const busZone=!!m?.busPriority','V8.19: bussgata/terminal','route-command.js']
-          missing=[x for x in required if x not in s]
-          if missing: raise SystemExit('Missing V8.19 markers: '+', '.join(missing))
-          p.write_text(s,encoding='utf-8')
-          PY
-
-      - name: Commit V8.19 changes
+      - name: Commit app
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -116,21 +27,21 @@ jobs:
           git commit -m "V8.19 stable drone and faster busway terminal flow" || true
           git push
 
-      - name: Deploy V8.19 to existing Cloudflare Pages project
+      - name: Deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy . --project-name=gmp-korvag-studio --branch=main
 
-      - name: Build full ZIP
+      - name: Build ZIP
         run: |
           ZIP="GMP-Korvag-Studio-V8.19-DRONARE-STABIL-FULL.zip"
           rm -f "$ZIP"
-          zip -r "$ZIP" . -x '.git/*' "$ZIP"
-          unzip -l "$ZIP" | grep -E 'index.html|route-command.js|_worker.js|bus18.glb'
+          zip -r "$ZIP" . -x ".git/*" "$ZIP"
+          unzip -l "$ZIP" | grep -E "index.html|route-command.js|_worker.js|bus18.glb"
 
-      - name: Upload full ZIP
+      - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
           name: GMP-Korvag-Studio-V8.19-DRONARE-STABIL-FULL
