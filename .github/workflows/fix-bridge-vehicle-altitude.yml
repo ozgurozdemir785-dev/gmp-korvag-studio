@@ -87,3 +87,5 @@ function googleVehicleAltitude(sample=null,route=null){
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: eb367029b1b6f6cac7f6524333e889b1
           command: pages deploy . --project-name=gmp-korvag-studio --branch=main
+
+# trigger v2
