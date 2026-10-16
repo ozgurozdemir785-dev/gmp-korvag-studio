@@ -1,0 +1,34 @@
+name: Export V819 Clean ZIP
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build clean package
+        run: |
+          mkdir -p package
+          git archive HEAD | tar -x -C package
+          test -f package/index.html
+          test -f package/_worker.js
+          test -f package/route-command.js
+          test -f package/bus18.glb
+          grep -q "V8.19" package/index.html
+          grep -q "STABIL · RONDELL" package/index.html
+          grep -q "V8.19: bussgata/terminal" package/index.html
+      - name: Upload clean package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GMP-Korvag-Studio-V8.19-DRONARE-STABIL-FULL
+          path: package/
+          if-no-files-found: error
+          retention-days: 90
