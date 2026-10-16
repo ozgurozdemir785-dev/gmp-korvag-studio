@@ -16,6 +16,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Load 3D bridge altitude runtime
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          tag='<script src="/bridge-altitude-runtime.js?v=20261016-bridge-v1"></script>'
+          if tag not in s:
+              if '</body>' not in s:
+                  raise SystemExit('index.html saknar </body>')
+              s=s.replace('</body>',tag+'\n</body>',1)
+              p.write_text(s,encoding='utf-8')
+          print('Bridge runtime loaded:', tag in s)
+          PY
+
       - name: Deploy to existing Cloudflare Pages project
         uses: cloudflare/wrangler-action@v3
         with:
@@ -23,4 +39,4 @@ jobs:
           accountId: eb367029b1b6f6cac7f6524333e889b1
           command: pages deploy . --project-name=gmp-korvag-studio --branch=main
 
-# 3D satellite fix deployed via main
+# 3D satellite + bridge deck fixes deploy via main
