@@ -1,0 +1,100 @@
+name: Fix recording camera smoothness V8.16
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-recording-camera-v816.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply recording performance fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='GMP_REC_CAMERA_SMOOTH_V816'
+          if marker in s:
+              print('Already patched')
+              raise SystemExit(0)
+
+          s=s.replace('<title>GMP Körväg Studio V8.15 · 3D STABIL 2026</title>', '<title>GMP Körväg Studio V8.16 · REC MJUK 2026</title>')
+          s=s.replace('<span>V8.15 · 3D STABIL 2026 · 2D + SAT + 3D + 4D</span>', '<span>V8.16 · REC MJUK 2026 · 2D + SAT + 3D + 4D</span>')
+
+          # Capture at 25 fps instead of forcing 30. This reduces GPU/encoder contention with Google 3D.
+          old="stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:false,preferCurrentTab:true,selfBrowserSurface:'include',surfaceSwitching:'exclude',monitorTypeSurfaces:'exclude'});"
+          new="stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:25}},audio:false,preferCurrentTab:true,selfBrowserSurface:'include',surfaceSwitching:'exclude',monitorTypeSurfaces:'exclude'});"
+          if old not in s:
+              raise SystemExit('display capture pattern not found')
+          s=s.replace(old,new,1)
+
+          # Hint motion capture and cap actual capture track when supported.
+          old="const track=stream.getVideoTracks()[0];\n    try{await cropRecordingTrackToMap(track)}"
+          new="const track=stream.getVideoTracks()[0];\n    /* GMP_REC_CAMERA_SMOOTH_V816 */\n    try{track.contentHint='motion'}catch{}\n    try{await track.applyConstraints?.({frameRate:{ideal:25,max:25}})}catch{}\n    try{await cropRecordingTrackToMap(track)}"
+          if old not in s:
+              raise SystemExit('track setup pattern not found')
+          s=s.replace(old,new,1)
+
+          # VP9 is expensive during live 3D. Prefer VP8, usually materially lighter in Chrome/Edge.
+          old="const type=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm';\n    mediaRecorder=new MediaRecorder(stream,{mimeType:type});"
+          new="const type=MediaRecorder.isTypeSupported('video/webm;codecs=vp8')?'video/webm;codecs=vp8':(MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm');\n    mediaRecorder=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:3500000});"
+          if old not in s:
+              raise SystemExit('MediaRecorder codec pattern not found')
+          s=s.replace(old,new,1)
+
+          # 500 ms chunks caused recurring main-thread spikes. Flush every 4 seconds instead.
+          old="mediaRecorder.start(500);toast('REC: videon innehåller bara kartan/3D, rutten och bussen. Knapparna ligger utanför inspelningen men kan användas hela tiden.',5600)"
+          new="mediaRecorder.start(4000);toast('REC MJUK: 25 fps och lättare videokodning är aktiv. Kameraknapparna kan användas under inspelningen.',5200)"
+          if old not in s:
+              raise SystemExit('MediaRecorder start pattern not found')
+          s=s.replace(old,new,1)
+
+          # Synchronize Google 3D camera updates to capture cadence while recording.
+          old="const _paintNow=performance.now(),_paintGap=document.hidden?120:(googleCameraMode==='driver'?36:42);"
+          new="const _paintNow=performance.now(),_paintGap=document.hidden?120:(state.recording?39:(googleCameraMode==='driver'?36:42));"
+          if old not in s:
+              raise SystemExit('3D paint-gap pattern not found')
+          s=s.replace(old,new,1)
+
+          # Keep replay capture lightweight during REC; it does not need 5 Hz while video is recording.
+          old="if(!force&&state.replayLastCapture>=0&&t-state.replayLastCapture<.20)return;"
+          new="if(!force&&state.replayLastCapture>=0&&t-state.replayLastCapture<(state.recording?.35:.20))return;"
+          if old not in s:
+              raise SystemExit('replay capture pattern not found')
+          s=s.replace(old,new,1)
+
+          p.write_text(s,encoding='utf-8')
+          print('V8.16 recording camera smoothness patch applied')
+          PY
+
+      - name: Commit recording fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'Smooth 3D camera while recording V8.16'
+            git push
+          fi
+
+      - name: Deploy fixed app to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: eb367029b1b6f6cac7f6524333e889b1
+          command: pages deploy . --project-name=gmp-korvag-studio --branch=main
