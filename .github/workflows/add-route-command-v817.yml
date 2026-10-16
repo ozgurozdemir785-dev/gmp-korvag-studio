@@ -1,0 +1,57 @@
+name: Add route command V8.17
+
+on:
+  push:
+    paths:
+      - '.github/workflows/add-route-command-v817.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add route command script to app
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='GMP_ROUTE_COMMAND_V817'
+          if marker not in s:
+              tag='<!-- GMP_ROUTE_COMMAND_V817 -->\n<script src="/route-command.js?v=route-command-v1-20261016"></script>\n'
+              if '</body>' not in s:
+                  raise SystemExit('No body close tag found')
+              s=s.replace('</body>',tag+'</body>',1)
+          s=s.replace('V8.16 · REC MJUK 2026','V8.17 · KOMMANDO 2026')
+          s=s.replace('V8.16 · REC MJUK 2026 · 2D + SAT + 3D + 4D','V8.17 · KOMMANDO 2026 · 2D + SAT + 3D + 4D')
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit command UI
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'Load natural language route command V8.17'
+            git push
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: eb367029b1b6f6cac7f6524333e889b1
+          command: pages deploy . --project-name=gmp-korvag-studio --branch=main
