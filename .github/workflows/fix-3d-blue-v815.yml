@@ -1,0 +1,96 @@
+name: Fix 3D blue screen V8.15
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-3d-blue-v815.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply stable 3D camera fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='GMP_3D_BLUE_FIX_V815'
+          if marker in s:
+              print('3D fix already applied')
+              raise SystemExit(0)
+
+          s=s.replace('<title>GMP Körväg Studio V8.14 · SNABB 2026</title>', '<title>GMP Körväg Studio V8.15 · 3D STABIL 2026</title>')
+          s=s.replace('<span>V8.14 · SNABB 2026 · 2D + SAT + 3D + 4D</span>', '<span>V8.15 · 3D STABIL 2026 · 2D + SAT + 3D + 4D</span>')
+
+          old="google3dMap=new lib.Map3DElement({center:{lat:sample.coord[1],lng:sample.coord[0],altitude:2},tilt:76,range:110,heading:sample.bearing||0,mode:'SATELLITE',defaultUIHidden:true,gestureHandling:'GREEDY',fov:55});"
+          new="/* GMP_3D_BLUE_FIX_V815 */\n   google3dMap=new lib.Map3DElement({center:{lat:sample.coord[1],lng:sample.coord[0],altitude:0},tilt:67.5,range:420,heading:sample.bearing||0,mode:'HYBRID',defaultUIHidden:true,gestureHandling:'GREEDY',fov:48});"
+          if old not in s:
+              raise SystemExit('Map3DElement constructor pattern not found')
+          s=s.replace(old,new,1)
+
+          old="const total=sample.total||routeLength(route)||1;let look=24,tilt=82.5,range=62,fov=50,dronePlan=null,headingOffset=0,targetAltitude=1.35;"
+          new="const total=sample.total||routeLength(route)||1;let look=30,tilt=70,range=125,fov=48,dronePlan=null,headingOffset=0,targetAltitude=.7;"
+          if old not in s:
+              raise SystemExit('Base 3D camera pattern not found')
+          s=s.replace(old,new,1)
+
+          old="if(googleCameraMode==='driver'){look=56;tilt=88.5;range=57;fov=61;targetAltitude=.85}"
+          new="if(googleCameraMode==='driver'){look=48;tilt=78;range=82;fov=58;targetAltitude=.7}"
+          if old not in s:
+              raise SystemExit('Driver camera pattern not found')
+          s=s.replace(old,new,1)
+
+          old="else if(googleCameraMode==='side'){look=10;tilt=81;range=58;fov=49;targetAltitude=1.65}"
+          new="else if(googleCameraMode==='side'){look=12;tilt=69;range=115;fov=48;targetAltitude=.9}"
+          if old not in s:
+              raise SystemExit('Side camera pattern not found')
+          s=s.replace(old,new,1)
+
+          # Re-apply a safe camera after the web component has attached and measured its container.
+          old="setGoogleCameraMode(isDriver?'driver':'follow');\n  $('googleViewStatus').innerHTML="
+          new="setGoogleCameraMode(isDriver?'driver':'follow');\n  requestAnimationFrame(()=>setTimeout(()=>{try{if(!google3dMap)return;google3dMap.mode='HYBRID';const cv=currentViewSample(),ss=cv.sample,rr=cv.route;if(ss?.coord){const safeTilt=isDriver?78:70,safeRange=isDriver?82:125;google3dMap.center={lat:ss.coord[1],lng:ss.coord[0],altitude:.7};google3dMap.heading=ss.bearing||0;google3dMap.tilt=safeTilt;google3dMap.range=safeRange;google3dMap.fov=isDriver?58:48;updateGoogleView(ss,rr,true)}}catch(e){console.warn('3D camera recovery',e)}},180));\n  $('googleViewStatus').innerHTML="
+          if old not in s:
+              raise SystemExit('openGoogleView recovery anchor not found')
+          s=s.replace(old,new,1)
+
+          # Make the 3D host explicitly black while Google tiles initialise instead of showing a misleading blue field.
+          old='.googleHost{position:absolute;inset:0}'
+          new='.googleHost{position:absolute;inset:0;background:#07111d}'
+          if old not in s:
+              raise SystemExit('googleHost CSS pattern not found')
+          s=s.replace(old,new,1)
+
+          p.write_text(s,encoding='utf-8')
+          print('V8.15 3D blue screen fix applied')
+          PY
+
+      - name: Commit 3D fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'Fix blue 3D view and stabilize camera V8.15'
+            git push
+          fi
+
+      - name: Deploy fixed app to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: eb367029b1b6f6cac7f6524333e889b1
+          command: pages deploy . --project-name=gmp-korvag-studio --branch=main
