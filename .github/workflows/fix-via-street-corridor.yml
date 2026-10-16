@@ -45,7 +45,54 @@ jobs:
               p.write_text(s, encoding='utf-8')
           PY
 
-      - name: Commit street corridor fix
+      - name: Patch 3D bridge deck altitude
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='BRIDGE_ALTITUDE_DECK_FIX_V2'
+          if marker not in s:
+              old="""function googleAltitudeMode(sample=null,route=null){if(!state.rules.groundLevel)return'RELATIVE_TO_MESH';const k=infrastructureKindForSample(sample,route);return(k==='bridge'||k==='tunnel')?'RELATIVE_TO_MESH':'RELATIVE_TO_GROUND'}
+function googleVehicleAltitude(sample=null,route=null){const k=infrastructureKindForSample(sample,route);return k==='bridge'?1.45:k==='tunnel'?.18:.12}"""
+              new="""/* BRIDGE_ALTITUDE_DECK_FIX_V2 */
+function googleInfrastructureMeta(sample=null,route=null){
+  const rr=route||state.driveRoute||buildDriveRoute(dir());
+  try{return roadMetaForDistance(sample?.distance||0,rr,dir())||{}}catch{return{}}
+}
+function googleBridgeDeckAltitude(sample=null,route=null){
+  const m=googleInfrastructureMeta(sample,route),e=Number(m?.meanElevation);
+  if(Number.isFinite(e)&&e>1)return e+1.45;
+  const layer=Math.max(1,Math.abs(Number(m?.layer)||1));
+  return Math.min(32,Math.max(8.5,layer*6.5+2));
+}
+function googleAltitudeMode(sample=null,route=null){
+  if(!state.rules.groundLevel)return'RELATIVE_TO_MESH';
+  const k=infrastructureKindForSample(sample,route);
+  if(k==='bridge'){
+    const e=Number(googleInfrastructureMeta(sample,route)?.meanElevation);
+    return Number.isFinite(e)&&e>1?'ABSOLUTE':'RELATIVE_TO_GROUND';
+  }
+  return k==='tunnel'?'RELATIVE_TO_MESH':'RELATIVE_TO_GROUND';
+}
+function googleVehicleAltitude(sample=null,route=null){
+  const k=infrastructureKindForSample(sample,route);
+  if(k==='bridge')return googleBridgeDeckAltitude(sample,route);
+  return k==='tunnel'?.18:.12;
+}"""
+              if old not in s:
+                  raise SystemExit('Altitude function block not found')
+              s=s.replace(old,new)
+              s=s.replace("google3dFallbackMarker.position={lat:modelC[1],lng:modelC[0],altitude:2};", "google3dFallbackMarker.position={lat:modelC[1],lng:modelC[0],altitude:googleVehicleAltitude(sample,route)+.55};")
+              s=s.replace("google3dSignalLeft.position={lat:lpos[1],lng:lpos[0],altitude:1.25};", "google3dSignalLeft.position={lat:lpos[1],lng:lpos[0],altitude:googleVehicleAltitude(sample,route)+.35};")
+              s=s.replace("google3dSignalRight.position={lat:rpos[1],lng:rpos[0],altitude:1.25};", "google3dSignalRight.position={lat:rpos[1],lng:rpos[0],altitude:googleVehicleAltitude(sample,route)+.35};")
+              s=s.replace("position:{lat:sample.coord[1],lng:sample.coord[0],altitude:2},altitudeMode:googleAltitudeMode(sample,route),label:'🚌 BUSS'", "position:{lat:sample.coord[1],lng:sample.coord[0],altitude:googleVehicleAltitude(sample,route)+.55},altitudeMode:googleAltitudeMode(sample,route),label:'🚌 BUSS'")
+              s=s.replace("position:{lat:pose.center[1],lng:pose.center[0],altitude:1.2},altitudeMode:googleAltitudeMode(sample,route),label:'●'", "position:{lat:pose.center[1],lng:pose.center[0],altitude:googleVehicleAltitude(sample,route)+.35},altitudeMode:googleAltitudeMode(sample,route),label:'●'")
+              p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit fixes
         shell: bash
         run: |
           if git diff --quiet; then
@@ -53,8 +100,8 @@ jobs:
           else
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add linne-preset-button.js
-            git commit -m 'Lock smart detours to selected street corridors'
+            git add linne-preset-button.js index.html
+            git commit -m 'Keep 3D bus on bridge deck'
             git push
           fi
 
