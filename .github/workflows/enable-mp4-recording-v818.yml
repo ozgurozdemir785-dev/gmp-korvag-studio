@@ -1,0 +1,70 @@
+name: Enable MP4 recording V8.18
+
+on:
+  push:
+    paths:
+      - '.github/workflows/enable-mp4-recording-v818.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prefer native MP4 recording
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          old="""    mediaChunks=[];
+    const type=MediaRecorder.isTypeSupported('video/webm;codecs=vp8')?'video/webm;codecs=vp8':(MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm');
+    mediaRecorder=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:3500000});
+    mediaRecorder.ondataavailable=e=>{if(e.data.size)mediaChunks.push(e.data)};
+    mediaRecorder.onstop=()=>{
+      const blob=new Blob(mediaChunks,{type:'video/webm'}),a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);a.download='GMP-korvag-'+new Date().toISOString().replace(/[:.]/g,'-')+'.webm';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+      stream?.getTracks().forEach(t=>t.stop());restoreCameraRailAfterRecording();$('mapArea')?.classList.remove('recording');state.recording=false;syncRecordControls(false);toast('Inspelningen sparades – endast kart-/3D-ytan.',3500)
+"""
+          new="""    mediaChunks=[];
+    const mp4Types=['video/mp4;codecs=avc1.42E01E','video/mp4;codecs=avc1','video/mp4;codecs=h264','video/mp4'];
+    const webmTypes=['video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm'];
+    const type=mp4Types.find(t=>MediaRecorder.isTypeSupported(t))||webmTypes.find(t=>MediaRecorder.isTypeSupported(t))||'';
+    const recorderOptions={videoBitsPerSecond:3500000};
+    if(type)recorderOptions.mimeType=type;
+    mediaRecorder=new MediaRecorder(stream,recorderOptions);
+    mediaRecorder.ondataavailable=e=>{if(e.data.size)mediaChunks.push(e.data)};
+    mediaRecorder.onstop=()=>{
+      const actualType=mediaRecorder?.mimeType||type||'video/webm';
+      const isMp4=/^video\/mp4/i.test(actualType);
+      const ext=isMp4?'mp4':'webm';
+      const blob=new Blob(mediaChunks,{type:actualType}),a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);a.download='GMP-korvag-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+      stream?.getTracks().forEach(t=>t.stop());restoreCameraRailAfterRecording();$('mapArea')?.classList.remove('recording');state.recording=false;syncRecordControls(false);toast(isMp4?'Inspelningen sparades som MP4 – klar för intranätet.':'Din webbläsare kunde inte spela in MP4 direkt. Filmen sparades som WebM.',5000)
+"""
+          if old not in s:
+              raise SystemExit('Recording block not found; no changes made')
+          s=s.replace(old,new,1)
+          s=s.replace('V8.17 · KOMMANDO 2026','V8.18 · MP4 2026')
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit MP4 recording
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Save recordings as MP4 when browser supports it" || true
+          git push
+
+      - name: Deploy to existing Cloudflare Pages project
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy . --project-name=gmp-korvag-studio --branch=main
