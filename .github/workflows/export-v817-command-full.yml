@@ -1,0 +1,47 @@
+name: Export V8.17 Command Full ZIP
+
+on:
+  push:
+    paths:
+      - '.github/workflows/export-v817-command-full.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build package
+        shell: bash
+        run: |
+          rm -rf export
+          mkdir -p export/GMP-Korvag-Studio-V8.17-KOMMANDO-FULL
+          rsync -a --exclude='.git' --exclude='export' ./ export/GMP-Korvag-Studio-V8.17-KOMMANDO-FULL/
+          test -f export/GMP-Korvag-Studio-V8.17-KOMMANDO-FULL/route-command.js
+          grep -q 'route-command.js' export/GMP-Korvag-Studio-V8.17-KOMMANDO-FULL/index.html
+          cat > export/GMP-Korvag-Studio-V8.17-KOMMANDO-FULL/API-INSTALLATION.txt <<'EOF'
+          GMP Körväg Studio V8.17 KOMMANDO 2026
+
+          Denna paketversion innehåller hela aktuella projektet, inklusive route-command.js,
+          Smart omläggning, ritad omläggning, hållplats-/terminalhantering, 2D/SAT/3D/4D,
+          inspelning, bro/viadukt/tunnel-logik, GTFS/routing/proxykod och bussmodeller.
+
+          Hemliga API-nycklar ingår inte i ZIP-filen.
+          Trafikverkets nyckel ska fortsatt ligga som Cloudflare secret:
+          TRAFIKVERKET_API_KEY
+
+          Deployar du till samma Cloudflare Pages-projekt behålls projektets befintliga secrets.
+          EOF
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GMP-Korvag-Studio-V8.17-KOMMANDO-FULL
+          path: export/GMP-Korvag-Studio-V8.17-KOMMANDO-FULL
+          if-no-files-found: error
+          compression-level: 6
