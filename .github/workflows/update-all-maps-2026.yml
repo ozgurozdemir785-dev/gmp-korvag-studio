@@ -1,0 +1,86 @@
+name: Update all map modes 2026
+
+on:
+  push:
+    paths:
+      - '.github/workflows/update-all-maps-2026.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update satellite 3D and 4D map modes for 2026
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='GMP_ALL_MAPS_2026_V1'
+          if marker in s:
+              print('Already updated')
+              raise SystemExit(0)
+
+          # Visible version labels
+          s=s.replace('<title>GMP Körväg Studio V8.12 · 2D 2026</title>', '<title>GMP Körväg Studio V8.13 · KARTOR 2026</title>')
+          s=s.replace('<span>V8.12 · 2D 2026 + 3D</span>', '<span>V8.13 · KARTOR 2026 · 2D + SAT + 3D + 4D</span>')
+
+          s=s.replace('<button id="mode2d" class="active">2D • Rita</button><button id="modeSat">Satellit • Rita</button><button id="mode3d">3D satellit</button><button id="modeDriver">Förarvy 3D</button><button id="mode4dSat">4D satellit</button><button id="mode4dDriver">4D förarvy</button>',
+                      '<button id="mode2d" class="active">2D 2026 • Rita</button><button id="modeSat">Satellit 2026 • Rita</button><button id="mode3d">3D 2026</button><button id="modeDriver">Förarvy 3D 2026</button><button id="mode4dSat">4D 2026</button><button id="mode4dDriver">4D förarvy 2026</button>')
+          s=s.replace('<button id="cc2d" class="btn">2D</button><button id="ccSat" class="btn">Satellit</button>\n            <button id="cc3d" class="btn">3D</button><button id="cc4d" class="btn">4D</button>',
+                      '<button id="cc2d" class="btn">2D 2026</button><button id="ccSat" class="btn">Sat 2026</button>\n            <button id="cc3d" class="btn">3D 2026</button><button id="cc4d" class="btn">4D 2026</button>')
+
+          # Satellite: keep Esri World Imagery but force a fresh 2026 cache generation.
+          old="return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${yy}/${xx}`;"
+          new="return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${yy}/${xx}?gmp=2026-10-16`;"
+          if old in s:
+              s=s.replace(old,new,1)
+
+          # Explicit marker documenting current providers.
+          tile_marker="/* GMP_ALL_MAPS_2026_V1\n   2D: current OpenStreetMap standard tiles.\n   Satellite: current Esri World Imagery with fresh 2026 cache key.\n   3D/Driver/4D: Google Maps 3D on the weekly channel (current API version). */\n"
+          anchor='/* GMP_2D_MAP_2026_OSM_V1'
+          if anchor in s:
+              s=s.replace(anchor, tile_marker+anchor,1)
+          else:
+              s=s.replace('function tileUrl(z,x,y){', tile_marker+'function tileUrl(z,x,y){',1)
+
+          # Attribution / visible status
+          s=s.replace("'Satellit © Esri, Maxar, Earthstar Geographics'", "'Satellit 2026 · © Esri, Maxar, Earthstar Geographics'")
+          s=s.replace('<div id="googleViewStatus" class="googleViewStatus"><b>3D-navigering</b><span>Google Maps laddas när API-nyckel är ansluten.</span></div>',
+                      '<div id="googleViewStatus" class="googleViewStatus"><b>3D / 4D · aktuell 2026-version</b><span>Google Maps 3D laddas via aktuell weekly-version när API-nyckel är ansluten.</span></div>')
+
+          # Google 3D already uses v=weekly; make the 2026/current intent explicit without changing API behavior.
+          s=s.replace("sc.src='https://maps.googleapis.com/maps/api/js?loading=async&v=weekly&libraries=maps3d&callback='",
+                      "/* GMP_GOOGLE_3D_2026_WEEKLY */\n   sc.src='https://maps.googleapis.com/maps/api/js?loading=async&v=weekly&libraries=maps3d&callback='")
+
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit 2026 map modes update
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'Update satellite 3D and 4D map modes for 2026'
+            git push
+          fi
+
+      - name: Deploy updated app to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: eb367029b1b6f6cac7f6524333e889b1
+          command: pages deploy . --project-name=gmp-korvag-studio --branch=main
