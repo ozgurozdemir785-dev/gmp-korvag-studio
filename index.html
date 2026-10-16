@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1523">
-<title>GMP Körväg Studio V8.12 · 2D 2026</title>
+<title>GMP Körväg Studio V8.13 · KARTOR 2026</title>
 <style>
 :root{
   --bg:#eef2f6;--panel:#fff;--ink:#172033;--muted:#667085;--line:#d0d5dd;
@@ -120,7 +120,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 <body>
 <div class="app">
   <header class="topbar">
-    <div class="brand"><div class="brandmark">GMP</div><div><strong>Körväg Studio</strong><span>V8.12 · 2D 2026 + 3D</span></div></div>
+    <div class="brand"><div class="brandmark">GMP</div><div><strong>Körväg Studio</strong><span>V8.13 · KARTOR 2026 · 2D + SAT + 3D + 4D</span></div></div>
     <div class="searchWrap">
       <div class="searchBar">
         <select id="searchTarget" aria-label="Vad sökresultatet ska användas till">
@@ -263,12 +263,12 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
           </div>
         </aside>
         <div class="googleHint noRecord">Följ bakom, Förarvy och Drönare är <b>låsta till körvägen</b>. Välj <b>Fri kamera</b> när du vill vrida och panorera helt själv.</div>
-        <div id="driveAssistHud" class="driveAssistHud hidden"><span id="assistSignal" class="sig">•</span><span id="assistSpeed">0 km/h</span><span id="assistState" class="ok">AUTO</span></div><div id="googleViewStatus" class="googleViewStatus"><b>3D-navigering</b><span>Google Maps laddas när API-nyckel är ansluten.</span></div>
+        <div id="driveAssistHud" class="driveAssistHud hidden"><span id="assistSignal" class="sig">•</span><span id="assistSpeed">0 km/h</span><span id="assistState" class="ok">AUTO</span></div><div id="googleViewStatus" class="googleViewStatus"><b>3D / 4D · aktuell 2026-version</b><span>Google Maps 3D laddas via aktuell weekly-version när API-nyckel är ansluten.</span></div>
       </div>
 
       <div class="mapHudTop noRecord">
         <div class="segmented">
-          <button id="mode2d" class="active">2D • Rita</button><button id="modeSat">Satellit • Rita</button><button id="mode3d">3D satellit</button><button id="modeDriver">Förarvy 3D</button><button id="mode4dSat">4D satellit</button><button id="mode4dDriver">4D förarvy</button>
+          <button id="mode2d" class="active">2D 2026 • Rita</button><button id="modeSat">Satellit 2026 • Rita</button><button id="mode3d">3D 2026</button><button id="modeDriver">Förarvy 3D 2026</button><button id="mode4dSat">4D 2026</button><button id="mode4dDriver">4D förarvy 2026</button>
         </div>
         <div class="mapMini"><button id="trafficStudioBtn" class="btn small" title="Trafikstudio-verktyg">📊 Trafikstudio</button><button id="panMapBtn" class="btn small active" title="Flytta kartan">✋ Flytta</button><button id="fitBtn" class="btn small">⌖ Visa rutt</button><button id="rotateLeft" class="btn small rotateBtn" title="Vrid vänster">↺</button><button id="northBtn" class="btn small" title="Norr upp"><span id="northNeedle">▲</span><span>N</span><span id="northDeg">0°</span></button><button id="rotateRight" class="btn small rotateBtn" title="Vrid höger">↻</button></div>
       </div>
@@ -358,8 +358,8 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
             <div class="recordHint">Byt Förarvy, Bakom, Sidifrån, Framifrån, Ovanifrån, Drönare eller Fri kamera under inspelningen. Kontrollpanelen kommer inte med i filmen.</div>
           </div></div>
           <div class="compactCard"><div class="compactTitle">Karta</div><div class="compactGrid">
-            <button id="cc2d" class="btn">2D</button><button id="ccSat" class="btn">Satellit</button>
-            <button id="cc3d" class="btn">3D</button><button id="cc4d" class="btn">4D</button>
+            <button id="cc2d" class="btn">2D 2026</button><button id="ccSat" class="btn">Sat 2026</button>
+            <button id="cc3d" class="btn">3D 2026</button><button id="cc4d" class="btn">4D 2026</button>
           </div><div class="compactToggles">
             <button class="compactToggle active" data-ccvis="stops">Hållplatser</button><button class="compactToggle active" data-ccvis="stopLabels">Namn</button>
             <button class="compactToggle active" data-ccvis="baseRoute">Rutt</button><button class="compactToggle active" data-ccvis="objects">Objekt</button>
@@ -551,13 +551,17 @@ function size(){const r=$('mapViewport').getBoundingClientRect();return[r.width,
 function centerWorld(){return lngLatToWorld(state.center)}
 function ll2s(c){const[w,h]=size(),cw=centerWorld(),p=lngLatToWorld(c);return[p[0]-cw[0]+w/2,p[1]-cw[1]+h/2]}
 function s2ll(x,y){const[w,h]=size(),cw=centerWorld();return worldToLngLat([cw[0]+x-w/2,cw[1]+y-h/2])}
+/* GMP_ALL_MAPS_2026_V1
+   2D: current OpenStreetMap standard tiles.
+   Satellite: current Esri World Imagery with fresh 2026 cache key.
+   3D/Driver/4D: Google Maps 3D on the weekly channel (current API version). */
 /* GMP_2D_MAP_2026_OSM_V1
    2D uses the current OpenStreetMap standard basemap.
    Satellite remains on Esri World Imagery. */
 function tileUrl(z,x,y){
   const n=2**z,xx=((x%n)+n)%n,yy=Math.max(0,Math.min(n-1,y));
   if(state.mapMode==='2d')return `https://tile.openstreetmap.org/${z}/${xx}/${yy}.png`;
-  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${yy}/${xx}`;
+  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${yy}/${xx}?gmp=2026-10-16`;
 }
 function renderTiles(){
  const pane=$('tilePane'),[w,h]=size(),cw=centerWorld(),left=cw[0]-w/2,top=cw[1]-h/2,z=state.zoom,margin=2,x0=Math.floor(left/TILE)-margin,x1=Math.floor((left+w)/TILE)+margin,y0=Math.floor(top/TILE)-margin,y1=Math.floor((top+h)/TILE)+margin;
@@ -583,7 +587,7 @@ function renderTiles(){
    img.style.left=(tx*TILE-left)+'px';img.style.top=(ty*TILE-top)+'px';
  }
  if(waiting===0)cleanup();
- $('attrib').textContent=state.mapMode==='sat'?'Satellit © Esri, Maxar, Earthstar Geographics':'2D 2026 · © OpenStreetMap contributors'
+ $('attrib').textContent=state.mapMode==='sat'?'Satellit 2026 · © Esri, Maxar, Earthstar Geographics':'2D 2026 · © OpenStreetMap contributors'
 }
 function clearTiles(){for(const img of tiles.values())img.remove();tiles.clear()}
 function svgEl(tag,a={}){const e=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(a).forEach(([k,v])=>e.setAttribute(k,v));return e}
@@ -1591,6 +1595,7 @@ function loadGoogleMaps(){
    window[cb]=()=>{if(done)return;done=true;try{delete window[cb]}catch{};if(window.google?.maps?.importLibrary)resolve(window.google.maps);else{googleMapsPromise=null;reject(new Error('Google Maps API startade men importLibrary saknas. Kontrollera Maps JavaScript API.'))}};
    window.gm_authFailure=()=>{googleMapsPromise=null;toast('Google Maps API-nyckeln nekades. Kontrollera Maps JavaScript API, fakturering och HTTP-referrer för gmp-korvag-studio.pages.dev.',7000)};
    const sc=document.createElement('script');sc.id='googleMapsJs';sc.async=true;sc.defer=true;
+   /* GMP_GOOGLE_3D_2026_WEEKLY */
    sc.src='https://maps.googleapis.com/maps/api/js?loading=async&v=weekly&libraries=maps3d&callback='+encodeURIComponent(cb)+'&key='+encodeURIComponent(key);
    sc.onerror=()=>fail('Google Maps kunde inte laddas. Kontrollera API-nyckel, Maps JavaScript API och domänbegränsning.');
    document.head.appendChild(sc);setTimeout(()=>{if(!done)fail('Google Maps svarade inte inom 15 sekunder. Kontrollera API-nyckel och tillåtna domäner.')},15000);
