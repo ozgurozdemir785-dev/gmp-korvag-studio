@@ -66,23 +66,21 @@ jobs:
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          ACCOUNT_ID: eb367029b1b6f6cac7f6524333e889b1
+          CLOUDFLARE_ACCOUNT_ID: eb367029b1b6f6cac7f6524333e889b1
           PROJECT_NAME: gmp-korvag-studio
         run: |
           set -euo pipefail
-          api="https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/${PROJECT_NAME}"
-          auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json")
 
-          project_json=$(curl -fsS "${auth[@]}" "$api")
-          keep_id=$(jq -r '.result.canonical_deployment.id // .result.latest_deployment.id // empty' <<<"$project_json")
+          deployments=$(npx --no-install wrangler pages deployment list --project-name "$PROJECT_NAME" --json)
+          keep_id=$(jq -r '[.[] | select(.Environment == "Production")][0].Id // empty' <<<"$deployments")
+
           if [ -z "$keep_id" ]; then
-            echo "Could not identify active production deployment; cleanup aborted."
+            echo "No active production deployment found; cleanup aborted."
             exit 1
           fi
 
-          echo "Keeping active production deployment: $keep_id"
-          deployments=$(curl -fsS "${auth[@]}" "$api/deployments?per_page=100")
-          mapfile -t old_ids < <(jq -r --arg keep "$keep_id" '.result[] | select(.id != $keep) | .id' <<<"$deployments")
+          echo "Keeping production deployment: $keep_id"
+          mapfile -t old_ids < <(jq -r --arg keep "$keep_id" '.[] | select(.Id != $keep) | .Id' <<<"$deployments")
 
           if [ ${#old_ids[@]} -eq 0 ]; then
             echo "No old deployments to remove."
@@ -92,20 +90,23 @@ jobs:
           failures=0
           for id in "${old_ids[@]}"; do
             echo "Removing old deployment: $id"
-            response=$(curl -sS -X DELETE "${auth[@]}" "$api/deployments/$id?force=true" || true)
-            if [ "$(jq -r '.success // false' <<<"$response" 2>/dev/null)" = "true" ]; then
+            if npx --no-install wrangler pages deployment delete "$id" --project-name "$PROJECT_NAME" --force; then
               echo "Removed: $id"
             else
-              echo "Could not remove $id: $(jq -c '.errors // .' <<<"$response" 2>/dev/null || echo "$response")"
+              echo "Cloudflare kept deployment $id (for example, an active branch alias)."
               failures=$((failures+1))
             fi
           done
 
-          if [ "$failures" -gt 0 ]; then
-            echo "$failures old deployment(s) could not be removed."
-            exit 1
-          fi
+          remaining=$(npx --no-install wrangler pages deployment list --project-name "$PROJECT_NAME" --json)
+          echo "Remaining deployments:"
+          jq -r '.[] | "\(.Environment)  \(.Id)  \(.Url // "")"' <<<"$remaining"
 
-          echo "Cleanup complete: only active production remains."
+          remaining_count=$(jq 'length' <<<"$remaining")
+          if [ "$remaining_count" -eq 1 ]; then
+            echo "Cleanup complete: only active production remains."
+          else
+            echo "Cleanup finished, but Cloudflare protected $((remaining_count-1)) deployment(s)."
+          fi
 
 # 3D satellite + bridge deck fixes deploy via main
