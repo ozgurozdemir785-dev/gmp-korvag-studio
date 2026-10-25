@@ -12,9 +12,10 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Load 3D bridge altitude runtime
         shell: bash
@@ -33,10 +34,32 @@ jobs:
           PY
 
       - name: Deploy to existing Cloudflare Pages project
-        uses: cloudflare/wrangler-action@v3
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: eb367029b1b6f6cac7f6524333e889b1
           command: pages deploy . --project-name=gmp-korvag-studio --branch=main
+
+      - name: Verify deployed site
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "Cloudflare returned no deployment URL"
+            exit 1
+          fi
+          echo "Checking $DEPLOYMENT_URL"
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --location --max-time 20 "$DEPLOYMENT_URL" >/dev/null; then
+              echo "Cloudflare deployment is reachable"
+              exit 0
+            fi
+            echo "Attempt $attempt failed; retrying..."
+            sleep 5
+          done
+          echo "Deployment could not be reached after retries"
+          exit 1
 
 # 3D satellite + bridge deck fixes deploy via main
