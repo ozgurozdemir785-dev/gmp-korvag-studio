@@ -62,4 +62,50 @@ jobs:
           echo "Deployment could not be reached after retries"
           exit 1
 
+      - name: Keep only current production deployment
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: eb367029b1b6f6cac7f6524333e889b1
+          PROJECT_NAME: gmp-korvag-studio
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/pages/projects/${PROJECT_NAME}"
+          auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json")
+
+          project_json=$(curl -fsS "${auth[@]}" "$api")
+          keep_id=$(jq -r '.result.canonical_deployment.id // .result.latest_deployment.id // empty' <<<"$project_json")
+          if [ -z "$keep_id" ]; then
+            echo "Could not identify active production deployment; cleanup aborted."
+            exit 1
+          fi
+
+          echo "Keeping active production deployment: $keep_id"
+          deployments=$(curl -fsS "${auth[@]}" "$api/deployments?per_page=100")
+          mapfile -t old_ids < <(jq -r --arg keep "$keep_id" '.result[] | select(.id != $keep) | .id' <<<"$deployments")
+
+          if [ ${#old_ids[@]} -eq 0 ]; then
+            echo "No old deployments to remove."
+            exit 0
+          fi
+
+          failures=0
+          for id in "${old_ids[@]}"; do
+            echo "Removing old deployment: $id"
+            response=$(curl -sS -X DELETE "${auth[@]}" "$api/deployments/$id?force=true" || true)
+            if [ "$(jq -r '.success // false' <<<"$response" 2>/dev/null)" = "true" ]; then
+              echo "Removed: $id"
+            else
+              echo "Could not remove $id: $(jq -c '.errors // .' <<<"$response" 2>/dev/null || echo "$response")"
+              failures=$((failures+1))
+            fi
+          done
+
+          if [ "$failures" -gt 0 ]; then
+            echo "$failures old deployment(s) could not be removed."
+            exit 1
+          fi
+
+          echo "Cleanup complete: only active production remains."
+
 # 3D satellite + bridge deck fixes deploy via main
